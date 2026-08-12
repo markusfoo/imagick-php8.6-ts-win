@@ -1,0 +1,87 @@
+name: Build imagick.dll for PHP 8.6.0beta1 (x64, TS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      PHP_VERSION: "8.6.0beta1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download PHP 8.6 source code
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://downloads.php.net/~sergey/php-8.6.0beta1.zip" -OutFile php-src.zip
+          Expand-Archive php-src.zip -DestinationPath C:\php-src
+
+      - name: Download PHP 8.6 binary
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://downloads.php.net/~sergey/php-8.6.0beta1-Win32-vs18-x64.zip" -OutFile php-bin.zip
+          Expand-Archive php-bin.zip -DestinationPath C:\php-bin
+
+      - name: Download ImageMagick dev libs
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://windows.php.net/downloads/pecl/deps/ImageMagick-7.1.1-45-vc18-x64.zip" -OutFile im.zip
+          Expand-Archive im.zip -DestinationPath C:\ImageMagick
+
+      - name: Download PHP SDK binary tools
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip
+          Expand-Archive sdk.zip -DestinationPath C:\
+          Rename-Item "C:\php-sdk-binary-tools-master" "C:\php-sdk"
+
+      - name: Generate php8ts.lib import library
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cd C:\php-bin
+          dumpbin /exports php8ts.dll > exports.txt
+          echo EXPORTS > php8ts.def
+          for /f "skip=19 tokens=4" %%a in (exports.txt) do echo %%a >> php8ts.def
+          lib /def:php8ts.def /machine:x64 /out:php8ts.lib
+
+      - name: Set up build environment
+        shell: pwsh
+        run: |
+          $phpdevDir = "C:\php-sdk\phpdev\vs18\x64\php-8.6.0beta1"
+          New-Item -ItemType Directory -Force -Path "$phpdevDir\ext\imagick"
+          
+          Copy-Item -Recurse -Force "C:\php-src\*" "$phpdevDir\"
+          Copy-Item "C:\php-bin\php8ts.dll" "$phpdevDir\"
+          Copy-Item "C:\php-bin\php8ts.lib" "$phpdevDir\"
+          Copy-Item "C:\php-bin\php8ts.lib" "$phpdevDir\dev\"
+          Copy-Item "C:\php-bin\php.exe" "$phpdevDir\"
+          
+          Expand-Archive "imagick-php86-patched.zip" -DestinationPath C:\temp-imagick
+          Copy-Item -Recurse -Force "C:\temp-imagick\imagick-src\*" "$phpdevDir\ext\imagick\"
+
+      - name: Build imagick
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          set PHP_SDK_DIR=C:\php-sdk
+          set IMAGICK_DIR=C:\ImageMagick
+          cd /d C:\php-sdk\phpdev\vs18\x64\php-8.6.0beta1\ext\imagick
+          call phpize.bat
+          configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick
+          nmake
+
+      - name: Collect artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out
+          Get-ChildItem -Recurse -Filter "php_imagick.dll" | Copy-Item -Destination out\
+
+      - name: Upload built DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: php_imagick-8.6.0beta1-x64-TS
+          path: out\php_imagick.dll
