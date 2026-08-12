@@ -36,31 +36,36 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          
+
           $binUrl = "https://downloads.php.net/~windows/qa/php-8.6.0beta1${{ matrix.bin_suffix }}-Win32-vs18-x64.zip"
           $develUrl = "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-x64.zip"
-          
+
           Write-Host "Downloading PHP Binary from: $binUrl"
           Invoke-WebRequest -Uri $binUrl -OutFile php-bin.zip -UseBasicParsing
-          
+
           Write-Host "Downloading PHP Devel Pack from: $develUrl"
           Invoke-WebRequest -Uri $develUrl -OutFile php-devel.zip -UseBasicParsing
-          
-          Write-Host "Downloading ImageMagick deps..."
+
+          Write-Host "Downloading ImageMagick dependencies..."
           Invoke-WebRequest -Uri "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-47-vs17-x64.zip" -OutFile im.zip -UseBasicParsing
-          
+
           Write-Host "Downloading PHP SDK binary tools (with retries)..."
           $retries = 3
+
           for ($i = 1; $i -le $retries; $i++) {
             try {
               Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip -UseBasicParsing
               break
             } catch {
-              Write-Host "Attempt $i failed (503). Retrying in 10 seconds..."
+              Write-Host "Attempt $i failed. Retrying in 10 seconds..."
               Start-Sleep -Seconds 10
             }
           }
-          if (-not (Test-Path "sdk.zip")) { exit 1 }
+
+          if (-not (Test-Path "sdk.zip")) {
+            Write-Host "ERROR: Failed to download PHP SDK binary tools."
+            exit 1
+          }
 
       - name: Extract dependencies
         shell: pwsh
@@ -69,6 +74,7 @@ jobs:
           Expand-Archive php-devel.zip -DestinationPath C:\php-devel
           Expand-Archive im.zip -DestinationPath C:\ImageMagick
           Expand-Archive sdk.zip -DestinationPath C:\
+
           Rename-Item "C:\php-sdk-binary-tools-master" "C:\php-sdk" -ErrorAction SilentlyContinue
 
       - name: Set up build environment
@@ -76,40 +82,58 @@ jobs:
         run: |
           $phpdevDir = Get-ChildItem "C:\php-devel" -Directory | Select-Object -First 1
           $phpdevPath = $phpdevDir.FullName
-          
-          Write-Host "PHP Dev dir: $phpdevPath"
-          
-          # Копіюємо imagick source в ext/imagick
+
+          Write-Host "PHP Dev directory: $phpdevPath"
+
+          # Copy imagick source to ext/imagick
           $imagickDir = "$phpdevPath\ext\imagick"
           New-Item -ItemType Directory -Force -Path $imagickDir
           Copy-Item -Recurse -Force "C:\imagick-src\*" $imagickDir
-          
-          # Копіюємо бінарні файли PHP (php.exe, php8ts.dll) в корінь devel-pack
+
+          # Copy PHP binary files to the devel-pack root
           Copy-Item "C:\php-bin\php.exe" "$phpdevPath\" -Force
           Copy-Item "C:\php-bin\*.dll" "$phpdevPath\" -Force
-          
-          # Зберігаємо шлях для наступних кроків
+
+          # Save the path for subsequent steps
           Add-Content -Path $env:GITHUB_ENV -Value "PHP_DEV_PATH=$phpdevPath"
 
       - name: Build with phpize / configure / nmake
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          
+
           set PHP_SDK_DIR=C:\php-sdk
           set IMAGICK_DIR=C:\ImageMagick
-          
-          REM ВАЖЛИВО: Додаємо шляхи до PHP та PHP SDK (де знаходиться bison.exe, sed, awk тощо)
-          set PATH=%PHP_DEV_PATH%;C:\php-sdk\bin;%PATH%
-          
+
+          REM Search recursively for bison.exe inside php-sdk
+          REM It is normally located in msys2\usr\bin
+          set BISON_DIR=
+
+          for /r "C:\php-sdk" %%F in (bison.exe) do (
+            set BISON_DIR=%%~dpF
+            goto :found_bison
+          )
+
+          :found_bison
+
+          if "%BISON_DIR%"=="" (
+            echo ERROR: bison.exe not found in C:\php-sdk
+            exit /b 1
+          )
+
+          echo Found bison at: %BISON_DIR%
+
+          REM Add PHP, SDK bin, and bison directories to PATH
+          set PATH=%PHP_DEV_PATH%;C:\php-sdk\bin;%BISON_DIR%;%PATH%
+
           cd /d "%PHP_DEV_PATH%\ext\imagick"
-          
+
           echo Running phpize...
           call phpize.bat
-          
+
           echo Running configure...
           call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick ${{ matrix.configure_flag }}
-          
+
           echo Running nmake...
           nmake
 
@@ -117,13 +141,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out
+
           $dll = Get-ChildItem -Recurse -Filter "php_imagick.dll" | Select-Object -First 1
+
           if ($dll) {
             Copy-Item $dll.FullName -Destination out\
             Write-Host "Found DLL: $($dll.FullName)"
           } else {
             Write-Host "ERROR: php_imagick.dll not found"
-            Get-ChildItem -Recurse -Filter "*.dll" | ForEach-Object { Write-Host $_.FullName }
+            Get-ChildItem -Recurse -Filter "*.dll" | ForEach-Object {
+              Write-Host $_.FullName
+            }
             exit 1
           }
 
