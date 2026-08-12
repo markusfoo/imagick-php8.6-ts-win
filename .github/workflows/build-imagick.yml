@@ -20,6 +20,7 @@ jobs:
           - ts: ts
             bin_suffix: ""
             php_dll: "php8ts.dll"
+
           - ts: nts
             bin_suffix: "-nts"
             php_dll: "php8.dll"
@@ -127,7 +128,7 @@ jobs:
                   [Parameter(Mandatory=$true)]
                   [string]$OutFile,
 
-                  [int]$MaxAttempts = 6
+                  [int]$MaxAttempts = 10
               )
 
               $ProgressPreference = "SilentlyContinue"
@@ -148,7 +149,7 @@ jobs:
                         -Uri $Url `
                         -OutFile $OutFile `
                         -UseBasicParsing `
-                        -TimeoutSec 600 `
+                        -TimeoutSec 900 `
                         -ErrorAction Stop
 
                       if (Test-Path $OutFile) {
@@ -156,8 +157,11 @@ jobs:
                           $size = (Get-Item $OutFile).Length
 
                           if ($size -gt 0) {
-                              Write-Host "Download successful: $OutFile"
+
+                              Write-Host "Download successful:"
+                              Write-Host $OutFile
                               Write-Host "Size: $size bytes"
+
                               return
                           }
                       }
@@ -173,11 +177,11 @@ jobs:
 
                       if ($attempt -lt $MaxAttempts) {
 
-                          $delay = 10 * $attempt
+                          $delay = 15 * $attempt
 
                           Write-Host "Retrying in $delay seconds..."
-                          Start-Sleep -Seconds $delay
 
+                          Start-Sleep -Seconds $delay
                       }
                   }
               }
@@ -262,22 +266,20 @@ jobs:
       # DOWNLOAD PHP SDK
       # ============================================================
 
-      - name: Download PHP SDK 2.8.3
+      - name: Download PHP SDK
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           . "C:\download-helper.ps1"
 
-          # IMPORTANT:
-          # Correct URL uses https://, NOT https\://
           $url = "https://github.com/php/php-sdk-binary-tools/archive/refs/tags/php-sdk-${{ env.PHP_SDK_VERSION }}.zip"
 
           Download-File `
             -Url $url `
             -OutFile "sdk.zip"
 
-          Write-Host "PHP SDK 2.8.3 downloaded."
+          Write-Host "PHP SDK downloaded."
 
 
       # ============================================================
@@ -359,24 +361,53 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          if (Test-Path "C:\ImageMagickRaw") {
-              Remove-Item "C:\ImageMagickRaw" -Recurse -Force
+          $rawRoot = "C:\ImageMagickRaw"
+          $finalRoot = "C:\ImageMagick"
+
+          if (Test-Path $rawRoot) {
+              Remove-Item $rawRoot -Recurse -Force
           }
 
-          if (Test-Path "C:\ImageMagick") {
-              Remove-Item "C:\ImageMagick" -Recurse -Force
+          if (Test-Path $finalRoot) {
+              Remove-Item $finalRoot -Recurse -Force
           }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $rawRoot `
+            -Force | Out-Null
+
+          New-Item `
+            -ItemType Directory `
+            -Path $finalRoot `
+            -Force | Out-Null
 
           Expand-Archive `
             -Path "im.zip" `
-            -DestinationPath "C:\ImageMagickRaw" `
+            -DestinationPath $rawRoot `
             -Force
 
           Write-Host ""
-          Write-Host "Searching for MagickWand.h..."
+          Write-Host "========================================"
+          Write-Host "ImageMagick archive structure"
+          Write-Host "========================================"
+
+          Get-ChildItem `
+            -Path $rawRoot `
+            -Recurse `
+            -Depth 4 |
+            Select-Object FullName |
+            ForEach-Object {
+                Write-Host $_.FullName
+            }
+
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "Searching for MagickWand.h"
+          Write-Host "========================================"
 
           $header = Get-ChildItem `
-            -Path "C:\ImageMagickRaw" `
+            -Path $rawRoot `
             -Recurse `
             -Filter "MagickWand.h" |
             Select-Object -First 1
@@ -385,44 +416,45 @@ jobs:
               throw "MagickWand.h was not found anywhere inside ImageMagick archive."
           }
 
-          Write-Host "Found:"
+          Write-Host "Found header:"
           Write-Host $header.FullName
 
-          # MagickWand.h should be:
-          # ...\MagickWand\MagickWand.h
-          #
-          # The parent of MagickWand is the ImageMagick include root.
+          $wandDirectory = $header.Directory.FullName
 
-          $magickIncludeRoot = $header.Directory.Parent.FullName
+          Write-Host ""
+          Write-Host "MagickWand directory:"
+          Write-Host $wandDirectory
+
+          $includeRoot = $header.Directory.Parent.FullName
 
           Write-Host ""
           Write-Host "ImageMagick include root:"
-          Write-Host $magickIncludeRoot
+          Write-Host $includeRoot
 
-          $targetInclude = "C:\ImageMagick\include\imagemagick"
-          $targetLib = "C:\ImageMagick\lib\imagemagick"
-          $targetBin = "C:\ImageMagick\bin"
-
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path $targetInclude | Out-Null
+          $targetInclude = "$finalRoot\include\imagemagick"
+          $targetLib = "$finalRoot\lib\imagemagick"
+          $targetBin = "$finalRoot\bin"
 
           New-Item `
             -ItemType Directory `
-            -Force `
-            -Path $targetLib | Out-Null
+            -Path $targetInclude `
+            -Force | Out-Null
 
           New-Item `
             -ItemType Directory `
-            -Force `
-            -Path $targetBin | Out-Null
+            -Path $targetLib `
+            -Force | Out-Null
 
-          # Copy ImageMagick headers into the layout expected by
-          # imagick/config.w32.
+          New-Item `
+            -ItemType Directory `
+            -Path $targetBin `
+            -Force | Out-Null
+
+          Write-Host ""
+          Write-Host "Copying ImageMagick headers..."
 
           Copy-Item `
-            -Path "$magickIncludeRoot\*" `
+            -Path "$includeRoot\*" `
             -Destination $targetInclude `
             -Recurse `
             -Force
@@ -431,81 +463,111 @@ jobs:
           Write-Host "Searching for ImageMagick libraries..."
 
           $wandLib = Get-ChildItem `
-            -Path "C:\ImageMagickRaw" `
+            -Path $rawRoot `
             -Recurse `
             -Filter "CORE_RL_MagickWand_.lib" |
             Select-Object -First 1
 
           $coreLib = Get-ChildItem `
-            -Path "C:\ImageMagickRaw" `
+            -Path $rawRoot `
             -Recurse `
             -Filter "CORE_RL_MagickCore_.lib" |
             Select-Object -First 1
 
           if (-not $wandLib) {
+
+              Write-Host ""
+              Write-Host "Available LIB files:"
+
+              Get-ChildItem `
+                -Path $rawRoot `
+                -Recurse `
+                -Filter "*.lib" |
+                ForEach-Object {
+                    Write-Host $_.FullName
+                }
+
               throw "CORE_RL_MagickWand_.lib was not found."
           }
 
           if (-not $coreLib) {
+
+              Write-Host ""
+              Write-Host "Available LIB files:"
+
+              Get-ChildItem `
+                -Path $rawRoot `
+                -Recurse `
+                -Filter "*.lib" |
+                ForEach-Object {
+                    Write-Host $_.FullName
+                }
+
               throw "CORE_RL_MagickCore_.lib was not found."
           }
 
+          Write-Host ""
           Write-Host "MagickWand library:"
           Write-Host $wandLib.FullName
 
+          Write-Host ""
           Write-Host "MagickCore library:"
           Write-Host $coreLib.FullName
 
-          # Copy every ImageMagick import/static library into the
-          # exact directory expected by config.w32.
+          Write-Host ""
+          Write-Host "Copying ImageMagick libraries..."
 
           Get-ChildItem `
-            -Path "C:\ImageMagickRaw" `
+            -Path $rawRoot `
             -Recurse `
             -Filter "*.lib" |
             Copy-Item `
               -Destination $targetLib `
               -Force
 
-          # Copy runtime DLLs as well.
-          # This does not affect compilation, but makes the artifact
-          # environment easier to inspect/use.
+          Write-Host ""
+          Write-Host "Copying ImageMagick runtime DLLs..."
 
           Get-ChildItem `
-            -Path "C:\ImageMagickRaw" `
+            -Path $rawRoot `
             -Recurse `
             -Filter "*.dll" |
             Copy-Item `
               -Destination $targetBin `
               -Force
 
-          $finalHeader = "C:\ImageMagick\include\imagemagick\MagickWand\MagickWand.h"
-          $finalWand = "C:\ImageMagick\lib\imagemagick\CORE_RL_MagickWand_.lib"
-          $finalCore = "C:\ImageMagick\lib\imagemagick\CORE_RL_MagickCore_.lib"
+          $finalHeader = "$targetInclude\MagickWand\MagickWand.h"
+          $finalWand = "$targetLib\CORE_RL_MagickWand_.lib"
+          $finalCore = "$targetLib\CORE_RL_MagickCore_.lib"
 
           Write-Host ""
-          Write-Host "Verifying normalized ImageMagick layout..."
+          Write-Host "========================================"
+          Write-Host "Verifying normalized ImageMagick"
+          Write-Host "========================================"
 
           if (-not (Test-Path $finalHeader)) {
-              throw "Normalized MagickWand.h was not created."
+              throw "Normalized MagickWand.h was not created: $finalHeader"
           }
 
           if (-not (Test-Path $finalWand)) {
-              throw "Normalized MagickWand library was not created."
+              throw "Normalized MagickWand library was not created: $finalWand"
           }
 
           if (-not (Test-Path $finalCore)) {
-              throw "Normalized MagickCore library was not created."
+              throw "Normalized MagickCore library was not created: $finalCore"
           }
 
           Write-Host ""
           Write-Host "ImageMagick development files are READY."
+
           Write-Host ""
           Write-Host "Header:"
           Write-Host $finalHeader
+
           Write-Host ""
           Write-Host "MagickWand:"
           Write-Host $finalWand
+
           Write-Host ""
           Write-Host "MagickCore:"
           Write-Host $finalCore
@@ -520,8 +582,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          if (Test-Path "C:\php-sdk") {
-              Remove-Item "C:\php-sdk" -Recurse -Force
+          $sdkRoot = "C:\php-sdk"
+
+          if (Test-Path $sdkRoot) {
+              Remove-Item $sdkRoot -Recurse -Force
           }
 
           Expand-Archive `
@@ -529,14 +593,14 @@ jobs:
             -DestinationPath "C:\" `
             -Force
 
-          $sdkRoot = "C:\php-sdk-binary-tools-php-sdk-${{ env.PHP_SDK_VERSION }}"
+          $extractedSdk = "C:\php-sdk-binary-tools-php-sdk-${{ env.PHP_SDK_VERSION }}"
 
-          if (-not (Test-Path $sdkRoot)) {
-              throw "PHP SDK directory was not found: $sdkRoot"
+          if (-not (Test-Path $extractedSdk)) {
+              throw "PHP SDK directory was not found: $extractedSdk"
           }
 
           Rename-Item `
-            -Path $sdkRoot `
+            -Path $extractedSdk `
             -NewName "php-sdk"
 
           Write-Host "PHP SDK installed at C:\php-sdk"
@@ -774,6 +838,11 @@ jobs:
 
           dir /s /b php_imagick.dll 2>nul
 
+          if errorlevel 1 (
+              echo ERROR: php_imagick.dll was not found after nmake.
+              exit /b 1
+          )
+
           echo.
           echo ========================================
           echo BUILD SUCCESS
@@ -831,19 +900,43 @@ jobs:
 
           Write-Host "Searching for php_imagick.dll..."
 
-          $dll = Get-ChildItem `
-            -Path $env:PHP_DEV_PATH `
-            -Recurse `
-            -Filter "php_imagick.dll" `
-            -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+          $searchRoots = @(
+              $env:PHP_DEV_PATH,
+              "$env:PHP_DEV_PATH\ext\imagick",
+              "C:\php-devel",
+              "C:\php-sdk"
+          )
+
+          $dll = $null
+
+          foreach ($root in $searchRoots) {
+
+              if (-not (Test-Path $root)) {
+                  continue
+              }
+
+              Write-Host ""
+              Write-Host "Searching:"
+              Write-Host $root
+
+              $dll = Get-ChildItem `
+                -Path $root `
+                -Recurse `
+                -Filter "php_imagick.dll" `
+                -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+
+              if ($dll) {
+                  break
+              }
+          }
 
           if (-not $dll) {
 
               Write-Host ""
               Write-Host "ERROR: php_imagick.dll was not produced."
-
               Write-Host ""
+
               Write-Host "Searching for all DLL files..."
 
               Get-ChildItem `
@@ -856,22 +949,49 @@ jobs:
                 }
 
               Write-Host ""
-              Write-Host "Searching build directories..."
+              Write-Host "Searching for object files..."
 
               Get-ChildItem `
                 -Path "$env:PHP_DEV_PATH\ext\imagick" `
                 -Recurse `
-                -Directory `
+                -Filter "*.obj" `
                 -ErrorAction SilentlyContinue |
                 ForEach-Object {
                     Write-Host $_.FullName
                 }
 
-              exit 1
+              Write-Host ""
+              Write-Host "Searching for libraries..."
+
+              Get-ChildItem `
+                -Path "$env:PHP_DEV_PATH\ext\imagick" `
+                -Recurse `
+                -Filter "*.lib" `
+                -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    Write-Host $_.FullName
+                }
+
+              Write-Host ""
+              Write-Host "Imagick directory tree:"
+
+              Get-ChildItem `
+                -Path "$env:PHP_DEV_PATH\ext\imagick" `
+                -Recurse `
+                -ErrorAction SilentlyContinue |
+                Select-Object FullName |
+                ForEach-Object {
+                    Write-Host $_.FullName
+                }
+
+              throw "php_imagick.dll was not produced."
           }
 
           Write-Host ""
-          Write-Host "FOUND php_imagick.dll:"
+          Write-Host "========================================"
+          Write-Host "FOUND php_imagick.dll"
+          Write-Host "========================================"
+
           Write-Host $dll.FullName
 
           Copy-Item `
@@ -905,6 +1025,7 @@ jobs:
           Write-Host "Built DLL"
           Write-Host "========================================"
 
+          Write-Host ""
           Write-Host "File:"
           Write-Host $file.FullName
 
