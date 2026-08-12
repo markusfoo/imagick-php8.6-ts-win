@@ -7,78 +7,98 @@ jobs:
   build:
     runs-on: windows-2022
     env:
-      PHP_VERSION: "8.6.0beta1"
+      # v8.20.129: Corrected URLs from windows.php.net QA
+      PHP_SRC_ZIP: "https://downloads.php.net/~windows/qa/php-8.6.0beta1-src.zip"
+      PHP_BIN_ZIP: "https://downloads.php.net/~windows/qa/php-8.6.0beta1-Win32-vs18-x64.zip"
+      PHP_DEVEL_ZIP: "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-x64.zip"
+      IMAGEMAGICK_URL: "https://windows.php.net/downloads/pecl/deps/ImageMagick-7.1.1-45-vc18-x64.zip"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download PHP 8.6 source code
+      # ── Step 1: Download all dependencies ──────────────────────────
+      - name: Download dependencies
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://downloads.php.net/~sergey/php-8.6.0beta1.zip" -OutFile php-src.zip
-          Expand-Archive php-src.zip -DestinationPath C:\php-src
-
-      - name: Download PHP 8.6 binary
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://downloads.php.net/~sergey/php-8.6.0beta1-Win32-vs18-x64.zip" -OutFile php-bin.zip
-          Expand-Archive php-bin.zip -DestinationPath C:\php-bin
-
-      - name: Download ImageMagick dev libs
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://windows.php.net/downloads/pecl/deps/ImageMagick-7.1.1-45-vc18-x64.zip" -OutFile im.zip
-          Expand-Archive im.zip -DestinationPath C:\ImageMagick
-
-      - name: Download PHP SDK binary tools
-        shell: pwsh
-        run: |
+          Write-Host "Downloading PHP Source..."
+          Invoke-WebRequest -Uri "${{ env.PHP_SRC_ZIP }}" -OutFile php-src.zip
+          
+          Write-Host "Downloading PHP Binary..."
+          Invoke-WebRequest -Uri "${{ env.PHP_BIN_ZIP }}" -OutFile php-bin.zip
+          
+          Write-Host "Downloading PHP Devel Pack..."
+          Invoke-WebRequest -Uri "${{ env.PHP_DEVEL_ZIP }}" -OutFile php-devel.zip
+          
+          Write-Host "Downloading ImageMagick deps..."
+          Invoke-WebRequest -Uri "${{ env.IMAGEMAGICK_URL }}" -OutFile im.zip
+          
+          Write-Host "Downloading PHP SDK binary tools..."
           Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip
+
+      # ── Step 2: Extract everything ─────────────────────────────────
+      - name: Extract dependencies
+        shell: pwsh
+        run: |
+          Expand-Archive php-src.zip -DestinationPath C:\php-src
+          Expand-Archive php-bin.zip -DestinationPath C:\php-bin
+          Expand-Archive php-devel.zip -DestinationPath C:\php-devel
+          Expand-Archive im.zip -DestinationPath C:\ImageMagick
           Expand-Archive sdk.zip -DestinationPath C:\
           Rename-Item "C:\php-sdk-binary-tools-master" "C:\php-sdk"
 
-      - name: Generate php8ts.lib import library
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cd C:\php-bin
-          dumpbin /exports php8ts.dll > exports.txt
-          echo EXPORTS > php8ts.def
-          for /f "skip=19 tokens=4" %%a in (exports.txt) do echo %%a >> php8ts.def
-          lib /def:php8ts.def /machine:x64 /out:php8ts.lib
-
-      - name: Set up build environment
+      # ── Step 3: Set up build environment ───────────────────────────
+      - name: Set up build directories
         shell: pwsh
         run: |
-          $phpdevDir = "C:\php-sdk\phpdev\vs18\x64\php-8.6.0beta1"
-          New-Item -ItemType Directory -Force -Path "$phpdevDir\ext\imagick"
+          # The devel-pack provides the exact directory structure phpize expects
+          $phpdevDir = Get-ChildItem "C:\php-devel" -Directory | Select-Object -First 1
+          Write-Host "PHP Dev dir: $($phpdevDir.FullName)"
           
-          Copy-Item -Recurse -Force "C:\php-src\*" "$phpdevDir\"
-          Copy-Item "C:\php-bin\php8ts.dll" "$phpdevDir\"
-          Copy-Item "C:\php-bin\php8ts.lib" "$phpdevDir\"
-          Copy-Item "C:\php-bin\php8ts.lib" "$phpdevDir\dev\"
-          Copy-Item "C:\php-bin\php.exe" "$phpdevDir\"
+          # Create imagick ext directory
+          $imagickDir = "$($phpdevDir.FullName)\ext\imagick"
+          New-Item -ItemType Directory -Force -Path $imagickDir
           
+          # Extract patched imagick source (committed in repo)
           Expand-Archive "imagick-php86-patched.zip" -DestinationPath C:\temp-imagick
-          Copy-Item -Recurse -Force "C:\temp-imagick\imagick-src\*" "$phpdevDir\ext\imagick\"
+          Copy-Item -Recurse -Force "C:\temp-imagick\imagick-src\*" $imagickDir
+          
+          Write-Host "Imagick source placed in: $imagickDir"
 
-      - name: Build imagick
+      # ── Step 4: Build imagick ──────────────────────────────────────
+      - name: Build with phpize / configure / nmake
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          
           set PHP_SDK_DIR=C:\php-sdk
           set IMAGICK_DIR=C:\ImageMagick
-          cd /d C:\php-sdk\phpdev\vs18\x64\php-8.6.0beta1\ext\imagick
+          
+          cd /d C:\php-devel\php-8.6.0beta1\ext\imagick
+          
+          echo Running phpize...
           call phpize.bat
-          configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick
+          
+          echo Running configure...
+          call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick
+          
+          echo Running nmake...
           nmake
 
-      - name: Collect artifact
+      # ── Step 5: Collect artifact ───────────────────────────────────
+      - name: Collect built DLL
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out
-          Get-ChildItem -Recurse -Filter "php_imagick.dll" | Copy-Item -Destination out\
+          $dll = Get-ChildItem -Recurse -Filter "php_imagick.dll" | Select-Object -First 1
+          if ($dll) {
+            Copy-Item $dll.FullName -Destination out\
+            Write-Host "Found DLL: $($dll.FullName)"
+          } else {
+            Write-Host "ERROR: php_imagick.dll not found in build output"
+            Get-ChildItem -Recurse -Filter "*.dll" | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
 
       - name: Upload built DLL
         uses: actions/upload-artifact@v4
