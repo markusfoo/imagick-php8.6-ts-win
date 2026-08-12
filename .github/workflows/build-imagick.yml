@@ -1,4 +1,4 @@
-name: Build Imagick for PHP 8.6
+name: Build Imagick PHP 8.6 VS18 x64
 
 on:
   workflow_dispatch:
@@ -8,85 +8,66 @@ permissions:
 
 env:
   PHP_VERSION: "8.6.0beta1"
-  PHP_SDK_VERSION: "2.8.3"
   IMAGICK_VERSION: "3.8.1"
   IMAGEMAGICK_VERSION: "7.1.1-47"
+  PHP_SDK_VERSION: "2.7.1"
 
 jobs:
 
-  build:
-    name: Build Imagick PHP 8.6 ${{ matrix.mode }} x64
-    runs-on: windows-2022
+  # ============================================================
+  # BUILD THREAD SAFE
+  # ============================================================
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - mode: ts
-            php_suffix: ""
-            devel_suffix: ""
-            zts_flag: "--enable-zts"
-
-          - mode: nts
-            php_suffix: "-nts"
-            devel_suffix: "-nts"
-            zts_flag: "--disable-zts"
+  build-ts:
+    name: Build Imagick PHP 8.6 TS x64
+    runs-on: windows-2025
 
     steps:
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
 
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ============================================================
-      # DOWNLOAD PHP BINARY
-      # ============================================================
+      # ----------------------------------------------------------
+      # Download PHP TS
+      # ----------------------------------------------------------
 
-      - name: Download PHP binary
+      - name: Download PHP 8.6 TS x64
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $url = "https://downloads.php.net/~windows/qa/php-$env:PHP_VERSION$env:php_suffix-Win32-vs18-x64.zip"
+          $url = "https://downloads.php.net/~windows/qa/php-$env:PHP_VERSION-Win32-vs18-x64.zip"
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Downloading PHP binary"
-          Write-Host "========================================"
+          Write-Host "Downloading PHP TS:"
           Write-Host $url
 
           Invoke-WebRequest `
             -Uri $url `
-            -OutFile "php-bin.zip" `
+            -OutFile "php-ts.zip" `
             -UseBasicParsing
 
-          if (-not (Test-Path "php-bin.zip")) {
-            throw "PHP binary was not downloaded."
+          if (-not (Test-Path "php-ts.zip")) {
+              throw "PHP TS archive was not downloaded."
           }
 
-          Write-Host "PHP binary downloaded."
+          Write-Host "PHP TS downloaded."
 
-        env:
-          php_suffix: ${{ matrix.php_suffix }}
+      # ----------------------------------------------------------
+      # Download PHP TS development package
+      # ----------------------------------------------------------
 
-      # ============================================================
-      # DOWNLOAD PHP DEVELOPMENT PACK
-      # ============================================================
-
-      - name: Download PHP development pack
+      - name: Download PHP TS development package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $url = "https://downloads.php.net/~windows/qa/php-devel-pack-$env:PHP_VERSION$env:devel_suffix-Win32-vs18-x64.zip"
+          $url = "https://downloads.php.net/~windows/qa/php-devel-pack-$env:PHP_VERSION-Win32-vs18-x64.zip"
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Downloading PHP development pack"
-          Write-Host "========================================"
+          Write-Host "Downloading PHP development package:"
           Write-Host $url
 
           Invoke-WebRequest `
@@ -95,17 +76,14 @@ jobs:
             -UseBasicParsing
 
           if (-not (Test-Path "php-devel.zip")) {
-            throw "PHP development pack was not downloaded."
+              throw "PHP development package was not downloaded."
           }
 
-          Write-Host "PHP development pack downloaded."
+          Write-Host "PHP development package downloaded."
 
-        env:
-          devel_suffix: ${{ matrix.devel_suffix }}
-
-      # ============================================================
-      # DOWNLOAD IMAGE MAGICK
-      # ============================================================
+      # ----------------------------------------------------------
+      # Download ImageMagick
+      # ----------------------------------------------------------
 
       - name: Download ImageMagick
         shell: pwsh
@@ -114,26 +92,23 @@ jobs:
 
           $url = "https://downloads.php.net/~windows/pecl/deps/ImageMagick-$env:IMAGEMAGICK_VERSION-vs17-x64.zip"
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Downloading ImageMagick"
-          Write-Host "========================================"
+          Write-Host "Downloading ImageMagick:"
           Write-Host $url
 
           Invoke-WebRequest `
             -Uri $url `
-            -OutFile "im.zip" `
+            -OutFile "imagemagick.zip" `
             -UseBasicParsing
 
-          if (-not (Test-Path "im.zip")) {
-            throw "ImageMagick package was not downloaded."
+          if (-not (Test-Path "imagemagick.zip")) {
+              throw "ImageMagick archive was not downloaded."
           }
 
           Write-Host "ImageMagick downloaded."
 
-      # ============================================================
-      # DOWNLOAD PHP SDK
-      # ============================================================
+      # ----------------------------------------------------------
+      # Download PHP SDK
+      # ----------------------------------------------------------
 
       - name: Download PHP SDK
         shell: pwsh
@@ -142,261 +117,109 @@ jobs:
 
           $url = "https://github.com/php/php-sdk-binary-tools/archive/refs/tags/php-sdk-$env:PHP_SDK_VERSION.zip"
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Downloading PHP SDK"
-          Write-Host "========================================"
+          Write-Host "Downloading PHP SDK:"
           Write-Host $url
 
-          $success = $false
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "php-sdk.zip" `
+            -UseBasicParsing
 
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            try {
-              Write-Host "Attempt $attempt / 5"
-
-              Invoke-WebRequest `
-                -Uri $url `
-                -OutFile "sdk.zip" `
-                -UseBasicParsing `
-                -TimeoutSec 120
-
-              if (Test-Path "sdk.zip") {
-                $success = $true
-                break
-              }
-            }
-            catch {
-              Write-Host "Download failed: $($_.Exception.Message)"
-
-              if ($attempt -lt 5) {
-                Start-Sleep -Seconds (5 * $attempt)
-              }
-            }
-          }
-
-          if (-not $success) {
-            throw "PHP SDK download failed after 5 attempts."
+          if (-not (Test-Path "php-sdk.zip")) {
+              throw "PHP SDK archive was not downloaded."
           }
 
           Write-Host "PHP SDK downloaded."
 
-      # ============================================================
-      # DOWNLOAD IMAGICK SOURCE
-      # ============================================================
+      # ----------------------------------------------------------
+      # Extract PHP runtime
+      # ----------------------------------------------------------
 
-      - name: Download Imagick source
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $primaryUrl = "https://codeload.github.com/Imagick/imagick/zip/refs/tags/$env:IMAGICK_VERSION"
-          $fallbackUrl = "https://github.com/Imagick/imagick/archive/refs/tags/$env:IMAGICK_VERSION.zip"
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "Downloading Imagick source"
-          Write-Host "========================================"
-          Write-Host "Primary:"
-          Write-Host $primaryUrl
-
-          $success = $false
-
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            try {
-              Write-Host "Attempt $attempt / 5"
-
-              Invoke-WebRequest `
-                -Uri $primaryUrl `
-                -OutFile "imagick.zip" `
-                -UseBasicParsing `
-                -TimeoutSec 120
-
-              if ((Test-Path "imagick.zip") -and ((Get-Item "imagick.zip").Length -gt 100000)) {
-                $success = $true
-                break
-              }
-            }
-            catch {
-              Write-Host "Primary download failed: $($_.Exception.Message)"
-
-              if (Test-Path "imagick.zip") {
-                Remove-Item "imagick.zip" -Force
-              }
-
-              if ($attempt -lt 5) {
-                Start-Sleep -Seconds (5 * $attempt)
-              }
-            }
-          }
-
-          if (-not $success) {
-            Write-Host ""
-            Write-Host "Trying GitHub archive fallback:"
-            Write-Host $fallbackUrl
-
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-              try {
-                Invoke-WebRequest `
-                  -Uri $fallbackUrl `
-                  -OutFile "imagick.zip" `
-                  -UseBasicParsing `
-                  -TimeoutSec 120
-
-                if ((Test-Path "imagick.zip") -and ((Get-Item "imagick.zip").Length -gt 100000)) {
-                  $success = $true
-                  break
-                }
-              }
-              catch {
-                Write-Host "Fallback attempt $attempt failed: $($_.Exception.Message)"
-
-                if (Test-Path "imagick.zip") {
-                  Remove-Item "imagick.zip" -Force
-                }
-
-                if ($attempt -lt 3) {
-                  Start-Sleep -Seconds (5 * $attempt)
-                }
-              }
-            }
-          }
-
-          if (-not $success) {
-            throw "Imagick $env:IMAGICK_VERSION source could not be downloaded."
-          }
-
-          Write-Host "Imagick source downloaded."
-
-      # ============================================================
-      # EXTRACT PHP BINARY
-      # ============================================================
-
-      - name: Extract PHP binary
+      - name: Extract PHP runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           $root = "C:\php-bin"
-          $extract = "C:\php-bin-extract"
 
           if (Test-Path $root) {
-            Remove-Item $root -Recurse -Force
+              Remove-Item $root -Recurse -Force
           }
-
-          if (Test-Path $extract) {
-            Remove-Item $extract -Recurse -Force
-          }
-
-          New-Item `
-            -ItemType Directory `
-            -Path $extract `
-            -Force | Out-Null
-
-          Expand-Archive `
-            -Path "php-bin.zip" `
-            -DestinationPath $extract `
-            -Force
-
-          $php = Get-ChildItem `
-            -Path $extract `
-            -Recurse `
-            -Filter "php.exe" |
-            Select-Object -First 1
-
-          if (-not $php) {
-            throw "php.exe was not found in PHP binary package."
-          }
-
-          Write-Host ""
-          Write-Host "Found PHP:"
-          Write-Host $php.FullName
 
           New-Item `
             -ItemType Directory `
             -Path $root `
             -Force | Out-Null
 
-          Copy-Item `
-            -Path "$($php.Directory.FullName)\*" `
-            -Destination $root `
-            -Recurse `
+          Expand-Archive `
+            -Path "php-ts.zip" `
+            -DestinationPath $root `
             -Force
 
-          if (-not (Test-Path "$root\php.exe")) {
-            throw "Normalized PHP binary was not created."
+          $php = Join-Path $root "php.exe"
+
+          if (-not (Test-Path $php)) {
+              throw "PHP executable was not found at $php"
           }
 
-          Write-Host ""
           Write-Host "PHP executable:"
-          Write-Host "$root\php.exe"
+          Write-Host $php
 
-      # ============================================================
-      # EXTRACT PHP DEVELOPMENT PACK
-      # ============================================================
+          & $php -v
 
-      - name: Extract PHP development pack
+      # ----------------------------------------------------------
+      # Extract PHP development package
+      # ----------------------------------------------------------
+
+      - name: Extract PHP development package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
           $root = "C:\php-devel"
-          $extract = "C:\php-devel-extract"
 
           if (Test-Path $root) {
-            Remove-Item $root -Recurse -Force
+              Remove-Item $root -Recurse -Force
           }
-
-          if (Test-Path $extract) {
-            Remove-Item $extract -Recurse -Force
-          }
-
-          New-Item `
-            -ItemType Directory `
-            -Path $extract `
-            -Force | Out-Null
-
-          Expand-Archive `
-            -Path "php-devel.zip" `
-            -DestinationPath $extract `
-            -Force
-
-          $phpize = Get-ChildItem `
-            -Path $extract `
-            -Recurse `
-            -Filter "phpize.bat" |
-            Select-Object -First 1
-
-          if (-not $phpize) {
-            throw "phpize.bat was not found in PHP development package."
-          }
-
-          $actualRoot = $phpize.Directory.FullName
-
-          Write-Host ""
-          Write-Host "PHP development package root:"
-          Write-Host $actualRoot
 
           New-Item `
             -ItemType Directory `
             -Path $root `
             -Force | Out-Null
 
-          Copy-Item `
-            -Path "$actualRoot\*" `
-            -Destination $root `
-            -Recurse `
+          Expand-Archive `
+            -Path "php-devel.zip" `
+            -DestinationPath $root `
             -Force
 
-          if (-not (Test-Path "$root\phpize.bat")) {
-            throw "phpize.bat was not normalized."
+          Write-Host "PHP development package contents:"
+
+          Get-ChildItem `
+            -Path $root `
+            -Recurse `
+            -File |
+            Select-Object -First 100 |
+            ForEach-Object {
+              Write-Host $_.FullName
+            }
+
+          $phpize = Get-ChildItem `
+            -Path $root `
+            -Recurse `
+            -Filter "phpize.bat" |
+            Select-Object -First 1
+
+          if (-not $phpize) {
+              throw "phpize.bat was not found in PHP development package."
           }
 
           Write-Host ""
-          Write-Host "PHP development environment READY."
+          Write-Host "phpize.bat:"
+          Write-Host $phpize.FullName
 
-      # ============================================================
-      # EXTRACT PHP SDK
-      # ============================================================
+      # ----------------------------------------------------------
+      # Extract PHP SDK
+      # ----------------------------------------------------------
 
       - name: Extract PHP SDK
         shell: pwsh
@@ -404,14 +227,14 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $extract = "C:\php-sdk-extract"
-          $sdkRoot = "C:\php-sdk"
+          $sdk = "C:\php-sdk"
 
           if (Test-Path $extract) {
-            Remove-Item $extract -Recurse -Force
+              Remove-Item $extract -Recurse -Force
           }
 
-          if (Test-Path $sdkRoot) {
-            Remove-Item $sdkRoot -Recurse -Force
+          if (Test-Path $sdk) {
+              Remove-Item $sdk -Recurse -Force
           }
 
           New-Item `
@@ -420,60 +243,42 @@ jobs:
             -Force | Out-Null
 
           Expand-Archive `
-            -Path "sdk.zip" `
+            -Path "php-sdk.zip" `
             -DestinationPath $extract `
             -Force
 
-          $starter = Get-ChildItem `
+          $root = Get-ChildItem `
             -Path $extract `
-            -Recurse `
-            -Filter "phpsdk-vs18-x64.bat" |
+            -Directory |
             Select-Object -First 1
 
-          if (-not $starter) {
-            Write-Host ""
-            Write-Host "Available SDK scripts:"
-
-            Get-ChildItem `
-              -Path $extract `
-              -Recurse `
-              -Filter "*.bat" |
-              ForEach-Object {
-                Write-Host $_.FullName
-              }
-
-            throw "phpsdk-vs18-x64.bat was not found."
+          if (-not $root) {
+              throw "PHP SDK archive root was not found."
           }
 
-          $sdkActualRoot = $starter.Directory.FullName
-
-          Write-Host ""
-          Write-Host "PHP SDK root:"
-          Write-Host $sdkActualRoot
-
-          New-Item `
-            -ItemType Directory `
-            -Path $sdkRoot `
-            -Force | Out-Null
-
-          Copy-Item `
-            -Path "$sdkActualRoot\*" `
-            -Destination $sdkRoot `
-            -Recurse `
+          Move-Item `
+            -Path $root.FullName `
+            -Destination $sdk `
             -Force
 
-          if (-not (Test-Path "$sdkRoot\phpsdk-vs18-x64.bat")) {
-            throw "PHP SDK was not normalized correctly."
+          $starter = Join-Path $sdk "phpsdk-vs18-x64.bat"
+
+          if (-not (Test-Path $starter)) {
+              throw "Official PHP SDK VS18 x64 starter was not found: $starter"
           }
 
+          Write-Host "PHP SDK:"
+          Write-Host $sdk
+
           Write-Host ""
-          Write-Host "PHP SDK READY."
+          Write-Host "VS18 x64 starter:"
+          Write-Host $starter
 
-      # ============================================================
-      # PREPARE IMAGEMAGICK
-      # ============================================================
+      # ----------------------------------------------------------
+      # Extract ImageMagick
+      # ----------------------------------------------------------
 
-      - name: Prepare ImageMagick
+      - name: Prepare ImageMagick development files
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -482,11 +287,11 @@ jobs:
           $final = "C:\ImageMagick"
 
           if (Test-Path $raw) {
-            Remove-Item $raw -Recurse -Force
+              Remove-Item $raw -Recurse -Force
           }
 
           if (Test-Path $final) {
-            Remove-Item $final -Recurse -Force
+              Remove-Item $final -Recurse -Force
           }
 
           New-Item `
@@ -494,20 +299,45 @@ jobs:
             -Path $raw `
             -Force | Out-Null
 
+          New-Item `
+            -ItemType Directory `
+            -Path $final `
+            -Force | Out-Null
+
           Expand-Archive `
-            -Path "im.zip" `
+            -Path "imagemagick.zip" `
             -DestinationPath $raw `
             -Force
+
+          Write-Host ""
+          Write-Host "Searching ImageMagick headers..."
 
           $header = Get-ChildItem `
             -Path $raw `
             -Recurse `
             -Filter "MagickWand.h" |
+            Where-Object {
+              $_.FullName -match "\\MagickWand\\MagickWand\.h$"
+            } |
             Select-Object -First 1
 
           if (-not $header) {
-            throw "MagickWand.h was not found."
+              Write-Host ""
+              Write-Host "ImageMagick archive structure:"
+              Get-ChildItem `
+                -Path $raw `
+                -Recurse `
+                -File |
+                Select-Object -First 200 |
+                ForEach-Object {
+                  Write-Host $_.FullName
+                }
+
+              throw "MagickWand.h was not found."
           }
+
+          Write-Host "Found header:"
+          Write-Host $header.FullName
 
           $wandLib = Get-ChildItem `
             -Path $raw `
@@ -522,16 +352,12 @@ jobs:
             Select-Object -First 1
 
           if (-not $wandLib) {
-            throw "CORE_RL_MagickWand_.lib was not found."
+              throw "CORE_RL_MagickWand_.lib was not found."
           }
 
           if (-not $coreLib) {
-            throw "CORE_RL_MagickCore_.lib was not found."
+              throw "CORE_RL_MagickCore_.lib was not found."
           }
-
-          Write-Host ""
-          Write-Host "ImageMagick header:"
-          Write-Host $header.FullName
 
           Write-Host ""
           Write-Host "MagickWand library:"
@@ -541,30 +367,27 @@ jobs:
           Write-Host "MagickCore library:"
           Write-Host $coreLib.FullName
 
-          $includeSource = $header.Directory.Parent.FullName
-
-          $targetInclude = "$final\include\imagemagick"
-          $targetLib = "$final\lib\imagemagick"
-          $targetBin = "$final\bin"
+          $includeRoot = $header.Directory.Parent.FullName
+          $libRoot = $wandLib.Directory.FullName
 
           New-Item `
             -ItemType Directory `
-            -Path $targetInclude `
+            -Path "$final\include\imagemagick" `
             -Force | Out-Null
 
           New-Item `
             -ItemType Directory `
-            -Path $targetLib `
+            -Path "$final\lib\imagemagick" `
             -Force | Out-Null
 
           New-Item `
             -ItemType Directory `
-            -Path $targetBin `
+            -Path "$final\bin" `
             -Force | Out-Null
 
           Copy-Item `
-            -Path "$includeSource\*" `
-            -Destination $targetInclude `
+            -Path "$includeRoot\*" `
+            -Destination "$final\include\imagemagick" `
             -Recurse `
             -Force
 
@@ -575,7 +398,7 @@ jobs:
             ForEach-Object {
               Copy-Item `
                 -Path $_.FullName `
-                -Destination $targetLib `
+                -Destination "$final\lib\imagemagick" `
                 -Force
             }
 
@@ -586,7 +409,7 @@ jobs:
             ForEach-Object {
               Copy-Item `
                 -Path $_.FullName `
-                -Destination $targetBin `
+                -Destination "$final\bin" `
                 -Force
             }
 
@@ -595,200 +418,223 @@ jobs:
           $finalCore = "$final\lib\imagemagick\CORE_RL_MagickCore_.lib"
 
           if (-not (Test-Path $finalHeader)) {
-            throw "Final ImageMagick header is missing."
+              throw "Final MagickWand.h is missing."
           }
 
           if (-not (Test-Path $finalWand)) {
-            throw "Final ImageMagick MagickWand library is missing."
+              throw "Final MagickWand import library is missing."
           }
 
           if (-not (Test-Path $finalCore)) {
-            throw "Final ImageMagick MagickCore library is missing."
+              throw "Final MagickCore import library is missing."
           }
 
           Write-Host ""
-          Write-Host "ImageMagick development files READY."
+          Write-Host "ImageMagick development environment READY."
 
-      # ============================================================
-      # PREPARE IMAGICK SOURCE
-      # ============================================================
+      # ----------------------------------------------------------
+      # Prepare TS source
+      # ----------------------------------------------------------
 
-      - name: Prepare Imagick source
+      - name: Prepare Imagick 3.8.1 TS source
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $extract = "C:\imagick-source"
-          $target = "C:\php-devel\ext\imagick"
+          $url = "https://github.com/Imagick/imagick/archive/refs/tags/$env:IMAGICK_VERSION.zip"
 
-          if (Test-Path $extract) {
-            Remove-Item $extract -Recurse -Force
+          Write-Host "Downloading Imagick:"
+          Write-Host $url
+
+          $archive = "imagick-ts.zip"
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $archive `
+            -UseBasicParsing `
+            -MaximumRedirection 10
+
+          if (-not (Test-Path $archive)) {
+              throw "Imagick source archive was not downloaded."
           }
 
-          if (Test-Path $target) {
-            Remove-Item $target -Recurse -Force
+          if (Test-Path "C:\imagick-ts") {
+              Remove-Item "C:\imagick-ts" -Recurse -Force
           }
 
           New-Item `
             -ItemType Directory `
-            -Path $extract `
-            -Force | Out-Null
-
-          New-Item `
-            -ItemType Directory `
-            -Path $target `
+            -Path "C:\imagick-ts" `
             -Force | Out-Null
 
           Expand-Archive `
-            -Path "imagick.zip" `
-            -DestinationPath $extract `
+            -Path $archive `
+            -DestinationPath "C:\imagick-ts" `
             -Force
 
           $sourceRoot = Get-ChildItem `
-            -Path $extract `
+            -Path "C:\imagick-ts" `
             -Directory |
             Select-Object -First 1
 
           if (-not $sourceRoot) {
-            throw "Imagick source root was not found."
+              throw "Imagick source root was not found."
           }
 
-          Copy-Item `
-            -Path "$($sourceRoot.FullName)\*" `
-            -Destination $target `
-            -Recurse `
-            -Force
+          Write-Host "Imagick source root:"
+          Write-Host $sourceRoot.FullName
 
-          if (-not (Test-Path "$target\imagick_class.c")) {
-            throw "imagick_class.c was not found."
+          $source = Join-Path $sourceRoot.FullName "imagick_class.c"
+
+          if (-not (Test-Path $source)) {
+              throw "imagick_class.c was not found."
           }
 
-          if (-not (Test-Path "$target\config.w32")) {
-            throw "config.w32 was not found."
-          }
+          $old = 'zend_is_callable(user_callback, 0, NULL TSRMLS_CC)'
+          $new = 'zend_is_callable_ex(user_callback, NULL, 0, NULL, NULL, NULL)'
 
-          Write-Host ""
-          Write-Host "Imagick $env:IMAGICK_VERSION source READY."
-
-      # ============================================================
-      # APPLY ONLY PHP 8.6 FIX
-      # ============================================================
-
-      - name: Patch zend_is_callable for PHP 8.6
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $file = "C:\php-devel\ext\imagick\imagick_class.c"
-
-          $old = 'if (!user_callback || !zend_is_callable(user_callback, 0, NULL TSRMLS_CC)) {'
-
-          $new = 'if (!user_callback || !zend_is_callable_ex(user_callback, NULL, 0, NULL, NULL, NULL)) {'
-
-          if (-not (Test-Path $file)) {
-            throw "imagick_class.c does not exist."
-          }
-
-          $content = Get-Content `
-            -Path $file `
+          $text = Get-Content `
+            -Path $source `
             -Raw
 
           $count = ([regex]::Matches(
-            $content,
+            $text,
             [regex]::Escape($old)
           )).Count
 
-          Write-Host ""
-          Write-Host "Original target occurrences: $count"
+          Write-Host "Occurrences of old API: $count"
 
           if ($count -ne 1) {
-            Write-Host ""
-            Write-Host "Current zend_is_callable occurrences:"
-
-            Select-String `
-              -Path $file `
-              -Pattern "zend_is_callable" |
-              ForEach-Object {
-                Write-Host "$($_.LineNumber): $($_.Line)"
-              }
-
-            throw "Expected exactly one target zend_is_callable call. Found: $count"
+              throw "Expected exactly one old zend_is_callable occurrence, found $count."
           }
 
-          $content = $content.Replace($old, $new)
+          $text = $text.Replace($old, $new)
 
           Set-Content `
-            -Path $file `
-            -Value $content `
+            -Path $source `
+            -Value $text `
             -Encoding UTF8 `
             -NoNewline
 
           $verify = Get-Content `
-            -Path $file `
+            -Path $source `
             -Raw
 
-          if (-not $verify.Contains($new)) {
-            throw "PHP 8.6 patch was not applied."
+          if ($verify.Contains($old)) {
+              throw "Old zend_is_callable call is still present."
           }
 
-          if ($verify.Contains($old)) {
-            throw "Old zend_is_callable call still exists."
+          if (-not $verify.Contains($new)) {
+              throw "New zend_is_callable_ex call was not inserted."
           }
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "PHP 8.6 FIX APPLIED"
-          Write-Host "========================================"
-          Write-Host $new
+          Write-Host "PHP 8.6 compatibility patch applied:"
+          Write-Host "zend_is_callable -> zend_is_callable_ex"
 
-      # ============================================================
-      # CREATE BUILD SCRIPT
-      # ============================================================
+          Write-Host ""
+          Write-Host "Patched source:"
+          Select-String `
+            -Path $source `
+            -Pattern "zend_is_callable" `
+            -Context 2,2
 
-      - name: Create build script
+      # ----------------------------------------------------------
+      # Create TS build task
+      # ----------------------------------------------------------
+
+      - name: Create TS build task
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $script = @'
+          $phpize = Get-ChildItem `
+            -Path "C:\php-devel" `
+            -Recurse `
+            -Filter "phpize.bat" |
+            Select-Object -First 1
+
+          if (-not $phpize) {
+              throw "phpize.bat was not found."
+          }
+
+          $build = @"
           @echo off
-          setlocal EnableExtensions
+          setlocal EnableExtensions EnableDelayedExpansion
 
           echo ========================================
-          echo PHP 8.6 Imagick 3.8.1
-          echo BUILD MODE: ${{ matrix.mode }}
+          echo PHP 8.6 TS x64 / Imagick 3.8.1
           echo ========================================
           echo.
 
-          set PHP_DEV_PATH=C:\php-devel
-          set IMAGEMAGICK_ROOT=C:\ImageMagick
+          set "PHP_DEV=%~dp0"
+          set "PHP_DEV=C:\php-devel"
+          set "IMAGEMAGICK=C:\ImageMagick"
+          set "SOURCE=C:\imagick-ts"
 
-          cd /d "%PHP_DEV_PATH%\ext\imagick"
+          echo PHP development package:
+          echo %PHP_DEV%
+          echo.
 
+          echo ImageMagick:
+          echo %IMAGEMAGICK%
+          echo.
+
+          echo Imagick source:
+          echo %SOURCE%
+          echo.
+
+          where cl
+          if errorlevel 1 (
+              echo ERROR: cl.exe not found.
+              exit /b 1
+          )
+
+          where link
+          if errorlevel 1 (
+              echo ERROR: link.exe not found.
+              exit /b 1
+          )
+
+          where nmake
+          if errorlevel 1 (
+              echo ERROR: nmake.exe not found.
+              exit /b 1
+          )
+
+          echo.
+          echo ========================================
+          echo PHP development package verification
+          echo ========================================
+
+          if not exist "%PHP_DEV%\phpize.bat" (
+              echo ERROR: phpize.bat missing.
+              exit /b 1
+          )
+
+          if not exist "%PHP_DEV%\include\php\main\php.h" (
+              echo ERROR: PHP headers missing.
+              exit /b 1
+          )
+
+          if not exist "%PHP_DEV%\php8ts.lib" (
+              echo ERROR: php8ts.lib missing.
+              exit /b 1
+          )
+
+          echo PHP TS development package OK.
+          echo.
+
+          cd /d "%SOURCE%"
           if errorlevel 1 (
               echo ERROR: Cannot enter Imagick source directory.
               exit /b 1
           )
 
-          echo.
           echo ========================================
-          echo PHP VERSION
+          echo Running phpize
           echo ========================================
-
-          C:\php-bin\php.exe -v
-
-          if errorlevel 1 (
-              echo ERROR: PHP executable failed.
-              exit /b 1
-          )
-
-          echo.
-          echo ========================================
-          echo PHPIZE
-          echo ========================================
-
-          call "%PHP_DEV_PATH%\phpize.bat"
-
+          call "%PHP_DEV%\phpize.bat"
           if errorlevel 1 (
               echo ERROR: phpize failed.
               exit /b 1
@@ -796,278 +642,861 @@ jobs:
 
           echo.
           echo ========================================
-          echo CONFIGURE
+          echo Running configure
           echo ========================================
 
-          call "%PHP_DEV_PATH%\configure.bat" --with-imagick=shared --with-imagick-dir=C:\ImageMagick ${{ matrix.zts_flag }}
+          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" --with-imagick=shared
 
           if errorlevel 1 (
               echo ERROR: configure failed.
-
-              if exist config.log (
-                  echo.
-                  echo ========================================
-                  echo CONFIG.LOG
-                  echo ========================================
-                  type config.log
-              )
-
+              if exist config.log type config.log
               exit /b 1
           )
 
           echo.
           echo ========================================
-          echo NMAKE
+          echo Build configuration
           echo ========================================
 
-          nmake /nologo
+          if exist Makefile (
+              echo Makefile exists.
+          ) else (
+              echo ERROR: Makefile was not generated.
+              exit /b 1
+          )
+
+          echo.
+          echo ========================================
+          echo Running nmake
+          echo ========================================
+
+          nmake /nologo > nmake-ts.log 2>&1
 
           if errorlevel 1 (
-              echo ERROR: nmake failed.
+              echo.
+              echo ========================================
+              echo NMAKE FAILED
+              echo ========================================
+              type nmake-ts.log
               exit /b 1
           )
 
           echo.
           echo ========================================
-          echo SEARCHING FOR PHP_IMAGICK.DLL
+          echo NMAKE SUCCESS
           echo ========================================
+
+          echo Searching for generated DLL...
 
           dir /s /b php_imagick.dll 2>nul
 
-          echo.
-          echo ========================================
-          echo BUILD ARTIFACTS
-          echo ========================================
-
-          dir /s /b *.obj 2>nul
-          dir /s /b *.lib 2>nul
-          dir /s /b *.dll 2>nul
-
-          echo.
-          echo ========================================
-          echo FINDING GENERATED DLL
-          echo ========================================
-
-          for /r %%F in (php_imagick.dll) do (
-              echo FOUND:
-              echo %%F
-              copy /Y "%%F" "C:\php-devel\php_imagick-${{ matrix.mode }}.dll" >nul
-
-              if errorlevel 1 (
-                  echo ERROR: Could not copy generated DLL.
-                  exit /b 1
+          if not exist "php_imagick.dll" (
+              for /r %%F in (php_imagick.dll) do (
+                  copy /y "%%F" "%SOURCE%\php_imagick.dll" >nul
+                  goto :dll_found
               )
-
-              echo DLL copied successfully.
-              exit /b 0
           )
 
-          echo ERROR: php_imagick.dll was not produced anywhere.
-          exit /b 1
-          '@
+          :dll_found
 
-          $script = $script.Replace(
-            '${{ matrix.mode }}',
-            '${{ matrix.mode }}'
+          if not exist "%SOURCE%\php_imagick.dll" (
+              echo ERROR: php_imagick.dll was not produced.
+              echo.
+              echo Build tree:
+              dir /s /b *.dll 2>nul
+              echo.
+              echo Object files:
+              dir /s /b *.obj 2>nul
+              echo.
+              echo Libraries:
+              dir /s /b *.lib 2>nul
+              exit /b 1
           )
+
+          echo.
+          echo ========================================
+          echo TS DLL FOUND
+          echo ========================================
+          echo %SOURCE%\php_imagick.dll
+
+          endlocal
+          exit /b 0
+          "@
 
           Set-Content `
-            -Path "C:\build-imagick.bat" `
-            -Value $script `
-            -Encoding ASCII `
-            -NoNewline
+            -Path "C:\build-imagick-ts.bat" `
+            -Value $build `
+            -Encoding ASCII
 
-          Write-Host ""
-          Write-Host "Build script created:"
-          Write-Host "C:\build-imagick.bat"
+          Write-Host "TS build task created."
 
-      # ============================================================
-      # BUILD
-      # ============================================================
+      # ----------------------------------------------------------
+      # Build TS
+      # ----------------------------------------------------------
 
-      - name: Build Imagick
+      - name: Build Imagick TS
         shell: cmd
         run: |
-          echo ========================================
-          echo STARTING PHP SDK
-          echo ========================================
-          echo.
-
-          if not exist "C:\php-sdk\phpsdk-vs18-x64.bat" (
-              echo ERROR: PHP SDK starter does not exist.
-              echo.
-              echo Available SDK files:
-              dir /s /b "C:\php-sdk\*.bat"
-              exit /b 1
-          )
-
-          echo PHP SDK starter:
-          echo C:\php-sdk\phpsdk-vs18-x64.bat
-          echo.
-
-          call "C:\php-sdk\phpsdk-vs18-x64.bat" -t "C:\build-imagick.bat"
+          call C:\php-sdk\phpsdk-vs18-x64.bat -t C:\build-imagick-ts.bat
 
           if errorlevel 1 (
-              echo.
               echo ========================================
-              echo ERROR: Imagick build failed
+              echo TS BUILD FAILED
               echo ========================================
               exit /b 1
           )
 
-          echo.
-          echo ========================================
-          echo BUILD COMPLETED
-          echo ========================================
+      # ----------------------------------------------------------
+      # Validate TS DLL
+      # ----------------------------------------------------------
 
-      # ============================================================
-      # COLLECT DLL
-      # ============================================================
-
-      - name: Collect DLL
+      - name: Validate TS DLL
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $generated = "C:\php-devel\php_imagick-${{ matrix.mode }}.dll"
+          $dll = "C:\imagick-ts\php_imagick.dll"
+
+          if (-not (Test-Path $dll)) {
+              throw "TS php_imagick.dll was not produced."
+          }
+
+          Write-Host "TS DLL:"
+          Write-Host $dll
+
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+          $runtimeDlls = Get-ChildItem `
+            -Path "C:\ImageMagick\bin" `
+            -Filter "*.dll" `
+            -File
+
+          foreach ($file in $runtimeDlls) {
+              Copy-Item `
+                -Path $file.FullName `
+                -Destination "C:\php-bin" `
+                -Force
+          }
+
+          Copy-Item `
+            -Path $dll `
+            -Destination "C:\php-bin\php_imagick.dll" `
+            -Force
 
           Write-Host ""
-          Write-Host "========================================"
-          Write-Host "SEARCHING FINAL DLL"
-          Write-Host "========================================"
+          Write-Host "Testing PHP TS extension..."
 
-          if (-not (Test-Path $generated)) {
-            Write-Host "Expected generated DLL:"
-            Write-Host $generated
+          & "C:\php-bin\php.exe" `
+            -n `
+            -d "extension=C:\php-bin\php_imagick.dll" `
+            -r "echo PHP_VERSION, PHP_EOL; echo PHP_ZTS ? 'TS' : 'NTS', PHP_EOL; echo extension_loaded('imagick') ? 'Imagick OK' : 'Imagick FAILED', PHP_EOL;"
 
-            Write-Host ""
-            Write-Host "All php_imagick.dll files:"
+          if ($LASTEXITCODE -ne 0) {
+              throw "PHP TS failed to load php_imagick.dll."
+          }
 
-            Get-ChildItem `
-              -Path "C:\php-devel\ext\imagick" `
-              -Recurse `
-              -Filter "php_imagick.dll" |
-              ForEach-Object {
-                Write-Host $_.FullName
-              }
+      # ----------------------------------------------------------
+      # Package TS
+      # ----------------------------------------------------------
 
-            Write-Host ""
-            Write-Host "All DLL files:"
+      - name: Package TS DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
 
-            Get-ChildItem `
-              -Path "C:\php-devel\ext\imagick" `
-              -Recurse `
-              -Filter "*.dll" |
-              ForEach-Object {
-                Write-Host $_.FullName
-              }
+          New-Item `
+            -ItemType Directory `
+            -Path "C:\artifact-ts" `
+            -Force | Out-Null
 
-            throw "${{ matrix.mode }} php_imagick.dll was not produced."
+          Copy-Item `
+            -Path "C:\imagick-ts\php_imagick.dll" `
+            -Destination "C:\artifact-ts\php_imagick.dll" `
+            -Force
+
+          Get-ChildItem `
+            -Path "C:\ImageMagick\bin" `
+            -Filter "*.dll" `
+            -File |
+            Copy-Item `
+              -Destination "C:\artifact-ts" `
+              -Force
+
+          Compress-Archive `
+            -Path "C:\artifact-ts\*" `
+            -DestinationPath "imagick-3.8.1-php8.6-vs18-x64-ts.zip" `
+            -Force
+
+      # ----------------------------------------------------------
+      # Upload TS artifact
+      # ----------------------------------------------------------
+
+      - name: Upload TS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagick-3.8.1-php8.6-vs18-x64-ts
+          path: imagick-3.8.1-php8.6-vs18-x64-ts.zip
+          if-no-files-found: error
+
+
+  # ============================================================
+  # BUILD NON THREAD SAFE
+  # ============================================================
+
+  build-nts:
+    name: Build Imagick PHP 8.6 NTS x64
+    runs-on: windows-2025
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Download PHP NTS
+      # ----------------------------------------------------------
+
+      - name: Download PHP 8.6 NTS x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://downloads.php.net/~windows/qa/php-$env:PHP_VERSION-nts-Win32-vs18-x64.zip"
+
+          Write-Host "Downloading PHP NTS:"
+          Write-Host $url
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "php-nts.zip" `
+            -UseBasicParsing
+
+          if (-not (Test-Path "php-nts.zip")) {
+              throw "PHP NTS archive was not downloaded."
+          }
+
+      # ----------------------------------------------------------
+      # Download PHP NTS development package
+      # ----------------------------------------------------------
+
+      - name: Download PHP NTS development package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://downloads.php.net/~windows/qa/php-devel-pack-$env:PHP_VERSION-nts-Win32-vs18-x64.zip"
+
+          Write-Host "Downloading PHP NTS development package:"
+          Write-Host $url
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "php-devel-nts.zip" `
+            -UseBasicParsing
+
+          if (-not (Test-Path "php-devel-nts.zip")) {
+              throw "PHP NTS development package was not downloaded."
+          }
+
+      # ----------------------------------------------------------
+      # Download ImageMagick
+      # ----------------------------------------------------------
+
+      - name: Download ImageMagick
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://downloads.php.net/~windows/pecl/deps/ImageMagick-$env:IMAGEMAGICK_VERSION-vs17-x64.zip"
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "imagemagick.zip" `
+            -UseBasicParsing
+
+          if (-not (Test-Path "imagemagick.zip")) {
+              throw "ImageMagick archive was not downloaded."
+          }
+
+      # ----------------------------------------------------------
+      # Download PHP SDK
+      # ----------------------------------------------------------
+
+      - name: Download PHP SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $url = "https://github.com/php/php-sdk-binary-tools/archive/refs/tags/php-sdk-$env:PHP_SDK_VERSION.zip"
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "php-sdk.zip" `
+            -UseBasicParsing
+
+          if (-not (Test-Path "php-sdk.zip")) {
+              throw "PHP SDK archive was not downloaded."
+          }
+
+      # ----------------------------------------------------------
+      # Extract PHP runtime
+      # ----------------------------------------------------------
+
+      - name: Extract PHP runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $root = "C:\php-bin"
+
+          if (Test-Path $root) {
+              Remove-Item $root -Recurse -Force
           }
 
           New-Item `
             -ItemType Directory `
-            -Path "dist\${{ matrix.mode }}" `
+            -Path $root `
             -Force | Out-Null
 
-          Copy-Item `
-            -Path $generated `
-            -Destination "dist\${{ matrix.mode }}\php_imagick.dll" `
+          Expand-Archive `
+            -Path "php-nts.zip" `
+            -DestinationPath $root `
             -Force
 
-          if (-not (Test-Path "dist\${{ matrix.mode }}\php_imagick.dll")) {
-            throw "Failed to copy final DLL."
+          if (-not (Test-Path "$root\php.exe")) {
+              throw "PHP NTS executable was not found."
           }
 
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "${{ matrix.mode }} DLL READY"
-          Write-Host "========================================"
+          & "$root\php.exe" -v
 
-          Get-Item "dist\${{ matrix.mode }}\php_imagick.dll" |
-            Format-List FullName,Length
+      # ----------------------------------------------------------
+      # Extract PHP development package
+      # ----------------------------------------------------------
 
-      # ============================================================
-      # COPY IMAGEMAGICK RUNTIME DLLS
-      # ============================================================
-
-      - name: Copy ImageMagick runtime DLLs
+      - name: Extract PHP development package
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $destination = "dist\${{ matrix.mode }}"
+          $root = "C:\php-devel"
+
+          if (Test-Path $root) {
+              Remove-Item $root -Recurse -Force
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $root `
+            -Force | Out-Null
+
+          Expand-Archive `
+            -Path "php-devel-nts.zip" `
+            -DestinationPath $root `
+            -Force
+
+          $phpize = Get-ChildItem `
+            -Path $root `
+            -Recurse `
+            -Filter "phpize.bat" |
+            Select-Object -First 1
+
+          if (-not $phpize) {
+              throw "phpize.bat was not found in NTS development package."
+          }
+
+          Write-Host "NTS phpize:"
+          Write-Host $phpize.FullName
+
+      # ----------------------------------------------------------
+      # Extract PHP SDK
+      # ----------------------------------------------------------
+
+      - name: Extract PHP SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $extract = "C:\php-sdk-extract"
+          $sdk = "C:\php-sdk"
+
+          if (Test-Path $extract) {
+              Remove-Item $extract -Recurse -Force
+          }
+
+          if (Test-Path $sdk) {
+              Remove-Item $sdk -Recurse -Force
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $extract `
+            -Force | Out-Null
+
+          Expand-Archive `
+            -Path "php-sdk.zip" `
+            -DestinationPath $extract `
+            -Force
+
+          $root = Get-ChildItem `
+            -Path $extract `
+            -Directory |
+            Select-Object -First 1
+
+          if (-not $root) {
+              throw "PHP SDK root was not found."
+          }
+
+          Move-Item `
+            -Path $root.FullName `
+            -Destination $sdk `
+            -Force
+
+          if (-not (Test-Path "$sdk\phpsdk-vs18-x64.bat")) {
+              throw "Official PHP SDK VS18 x64 starter was not found."
+          }
+
+      # ----------------------------------------------------------
+      # Prepare ImageMagick
+      # ----------------------------------------------------------
+
+      - name: Prepare ImageMagick development files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $raw = "C:\ImageMagickRaw"
+          $final = "C:\ImageMagick"
+
+          if (Test-Path $raw) {
+              Remove-Item $raw -Recurse -Force
+          }
+
+          if (Test-Path $final) {
+              Remove-Item $final -Recurse -Force
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path $raw `
+            -Force | Out-Null
+
+          New-Item `
+            -ItemType Directory `
+            -Path "$final\include\imagemagick" `
+            -Force | Out-Null
+
+          New-Item `
+            -ItemType Directory `
+            -Path "$final\lib\imagemagick" `
+            -Force | Out-Null
+
+          New-Item `
+            -ItemType Directory `
+            -Path "$final\bin" `
+            -Force | Out-Null
+
+          Expand-Archive `
+            -Path "imagemagick.zip" `
+            -DestinationPath $raw `
+            -Force
+
+          $header = Get-ChildItem `
+            -Path $raw `
+            -Recurse `
+            -Filter "MagickWand.h" |
+            Where-Object {
+              $_.FullName -match "\\MagickWand\\MagickWand\.h$"
+            } |
+            Select-Object -First 1
+
+          if (-not $header) {
+              throw "MagickWand.h was not found."
+          }
+
+          $wand = Get-ChildItem `
+            -Path $raw `
+            -Recurse `
+            -Filter "CORE_RL_MagickWand_.lib" |
+            Select-Object -First 1
+
+          $core = Get-ChildItem `
+            -Path $raw `
+            -Recurse `
+            -Filter "CORE_RL_MagickCore_.lib" |
+            Select-Object -First 1
+
+          if (-not $wand) {
+              throw "CORE_RL_MagickWand_.lib was not found."
+          }
+
+          if (-not $core) {
+              throw "CORE_RL_MagickCore_.lib was not found."
+          }
+
+          Copy-Item `
+            -Path "$($header.Directory.Parent.FullName)\*" `
+            -Destination "$final\include\imagemagick" `
+            -Recurse `
+            -Force
 
           Get-ChildItem `
-            -Path "C:\ImageMagick\bin" `
-            -Filter "*.dll" |
+            -Path $raw `
+            -Recurse `
+            -Filter "*.lib" |
             ForEach-Object {
               Copy-Item `
-                -Path $_.FullName `
-                -Destination $destination `
+                $_.FullName `
+                "$final\lib\imagemagick" `
                 -Force
             }
 
-          Write-Host ""
-          Write-Host "ImageMagick runtime DLLs copied."
+          Get-ChildItem `
+            -Path $raw `
+            -Recurse `
+            -Filter "*.dll" |
+            ForEach-Object {
+              Copy-Item `
+                $_.FullName `
+                "$final\bin" `
+                -Force
+            }
 
-      # ============================================================
-      # VERIFY
-      # ============================================================
-
-      - name: Verify final DLL
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $dll = "dist\${{ matrix.mode }}\php_imagick.dll"
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "FINAL ARTIFACT"
-          Write-Host "========================================"
-
-          if (-not (Test-Path $dll)) {
-            throw "Final DLL missing: $dll"
+          if (-not (Test-Path "$final\include\imagemagick\MagickWand\MagickWand.h")) {
+              throw "Final MagickWand.h is missing."
           }
 
-          Get-Item $dll |
-            Format-List FullName,Length
+          if (-not (Test-Path "$final\lib\imagemagick\CORE_RL_MagickWand_.lib")) {
+              throw "Final MagickWand library is missing."
+          }
 
-          Write-Host ""
-          Write-Host "Build ${{ matrix.mode }} SUCCESS."
+          if (-not (Test-Path "$final\lib\imagemagick\CORE_RL_MagickCore_.lib")) {
+              throw "Final MagickCore library is missing."
+          }
 
-      # ============================================================
-      # ZIP
-      # ============================================================
+      # ----------------------------------------------------------
+      # Prepare NTS source + patch
+      # ----------------------------------------------------------
 
-      - name: Package DLL
+      - name: Prepare Imagick 3.8.1 NTS source
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          $zip = "php_imagick-$env:IMAGICK_VERSION-8.6-${{ matrix.mode }}-vs18-x64.zip"
+          $url = "https://github.com/Imagick/imagick/archive/refs/tags/$env:IMAGICK_VERSION.zip"
 
-          Compress-Archive `
-            -Path "dist\${{ matrix.mode }}\*" `
-            -DestinationPath $zip `
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile "imagick-nts.zip" `
+            -UseBasicParsing `
+            -MaximumRedirection 10
+
+          if (-not (Test-Path "imagick-nts.zip")) {
+              throw "Imagick source archive was not downloaded."
+          }
+
+          if (Test-Path "C:\imagick-nts") {
+              Remove-Item "C:\imagick-nts" -Recurse -Force
+          }
+
+          New-Item `
+            -ItemType Directory `
+            -Path "C:\imagick-nts" `
+            -Force | Out-Null
+
+          Expand-Archive `
+            -Path "imagick-nts.zip" `
+            -DestinationPath "C:\imagick-nts" `
             -Force
 
-          if (-not (Test-Path $zip)) {
-            throw "ZIP package was not created."
+          $root = Get-ChildItem `
+            -Path "C:\imagick-nts" `
+            -Directory |
+            Select-Object -First 1
+
+          if (-not $root) {
+              throw "Imagick source root was not found."
           }
 
+          $source = Join-Path $root.FullName "imagick_class.c"
+
+          if (-not (Test-Path $source)) {
+              throw "imagick_class.c was not found."
+          }
+
+          $old = 'zend_is_callable(user_callback, 0, NULL TSRMLS_CC)'
+          $new = 'zend_is_callable_ex(user_callback, NULL, 0, NULL, NULL, NULL)'
+
+          $text = Get-Content `
+            $source `
+            -Raw
+
+          $count = ([regex]::Matches(
+            $text,
+            [regex]::Escape($old)
+          )).Count
+
+          if ($count -ne 1) {
+              throw "Expected exactly one old zend_is_callable occurrence, found $count."
+          }
+
+          $text = $text.Replace($old, $new)
+
+          Set-Content `
+            -Path $source `
+            -Value $text `
+            -Encoding UTF8 `
+            -NoNewline
+
+          $verify = Get-Content `
+            $source `
+            -Raw
+
+          if ($verify.Contains($old)) {
+              throw "Old zend_is_callable call remains."
+          }
+
+          if (-not $verify.Contains($new)) {
+              throw "zend_is_callable_ex patch was not applied."
+          }
+
+          Select-String `
+            -Path $source `
+            -Pattern "zend_is_callable" `
+            -Context 2,2
+
+      # ----------------------------------------------------------
+      # Create NTS build task
+      # ----------------------------------------------------------
+
+      - name: Create NTS build task
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $build = @"
+          @echo off
+          setlocal EnableExtensions EnableDelayedExpansion
+
+          echo ========================================
+          echo PHP 8.6 NTS x64 / Imagick 3.8.1
+          echo ========================================
+
+          set "PHP_DEV=C:\php-devel"
+          set "IMAGEMAGICK=C:\ImageMagick"
+          set "SOURCE=C:\imagick-nts"
+
+          where cl
+          if errorlevel 1 exit /b 1
+
+          where link
+          if errorlevel 1 exit /b 1
+
+          where nmake
+          if errorlevel 1 exit /b 1
+
+          if not exist "%PHP_DEV%\phpize.bat" (
+              echo ERROR: phpize.bat missing.
+              exit /b 1
+          )
+
+          if not exist "%PHP_DEV%\include\php\main\php.h" (
+              echo ERROR: PHP headers missing.
+              exit /b 1
+          )
+
+          if not exist "%PHP_DEV%\php8.lib" (
+              if not exist "%PHP_DEV%\php8nts.lib" (
+                  echo ERROR: PHP NTS import library not found.
+                  dir /s /b "%PHP_DEV%\*.lib"
+                  exit /b 1
+              )
+          )
+
+          cd /d "%SOURCE%"
+          if errorlevel 1 exit /b 1
+
+          echo ========================================
+          echo PHPIZE
+          echo ========================================
+
+          call "%PHP_DEV%\phpize.bat"
+          if errorlevel 1 (
+              echo PHPIZE FAILED
+              exit /b 1
+          )
+
+          echo ========================================
+          echo CONFIGURE
+          echo ========================================
+
+          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" --with-imagick=shared
+
+          if errorlevel 1 (
+              echo CONFIGURE FAILED
+              if exist config.log type config.log
+              exit /b 1
+          )
+
+          if not exist Makefile (
+              echo ERROR: Makefile missing.
+              exit /b 1
+          )
+
+          echo ========================================
+          echo NMAKE
+          echo ========================================
+
+          nmake /nologo > nmake-nts.log 2>&1
+
+          if errorlevel 1 (
+              echo ========================================
+              echo NMAKE FAILED
+              echo ========================================
+              type nmake-nts.log
+              exit /b 1
+          )
+
+          echo ========================================
+          echo SEARCHING GENERATED DLL
+          echo ========================================
+
+          dir /s /b php_imagick.dll 2>nul
+
+          for /r %%F in (php_imagick.dll) do (
+              copy /y "%%F" "%SOURCE%\php_imagick.dll" >nul
+              goto :dll_found
+          )
+
+          :dll_found
+
+          if not exist "%SOURCE%\php_imagick.dll" (
+              echo ERROR: php_imagick.dll was not produced.
+              echo.
+              echo DLL:
+              dir /s /b *.dll 2>nul
+              echo.
+              echo OBJ:
+              dir /s /b *.obj 2>nul
+              echo.
+              echo LIB:
+              dir /s /b *.lib 2>nul
+              exit /b 1
+          )
+
+          echo ========================================
+          echo NTS DLL FOUND
+          echo ========================================
+          echo %SOURCE%\php_imagick.dll
+
+          endlocal
+          exit /b 0
+          "@
+
+          Set-Content `
+            -Path "C:\build-imagick-nts.bat" `
+            -Value $build `
+            -Encoding ASCII
+
+      # ----------------------------------------------------------
+      # Build NTS
+      # ----------------------------------------------------------
+
+      - name: Build Imagick NTS
+        shell: cmd
+        run: |
+          call C:\php-sdk\phpsdk-vs18-x64.bat -t C:\build-imagick-nts.bat
+
+          if errorlevel 1 (
+              echo ========================================
+              echo NTS BUILD FAILED
+              echo ========================================
+              exit /b 1
+          )
+
+      # ----------------------------------------------------------
+      # Validate NTS
+      # ----------------------------------------------------------
+
+      - name: Validate NTS DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $dll = "C:\imagick-nts\php_imagick.dll"
+
+          if (-not (Test-Path $dll)) {
+              throw "NTS php_imagick.dll was not produced."
+          }
+
+          Write-Host "NTS DLL:"
+          Write-Host $dll
+
+          Get-Item $dll | Format-List FullName,Length,LastWriteTime
+
+          Get-ChildItem `
+            -Path "C:\ImageMagick\bin" `
+            -Filter "*.dll" `
+            -File |
+            Copy-Item `
+              -Destination "C:\php-bin" `
+              -Force
+
+          Copy-Item `
+            -Path $dll `
+            -Destination "C:\php-bin\php_imagick.dll" `
+            -Force
+
           Write-Host ""
-          Write-Host "Package created:"
-          Write-Host $zip
+          Write-Host "Testing PHP NTS extension..."
 
-      # ============================================================
-      # UPLOAD
-      # ============================================================
+          & "C:\php-bin\php.exe" `
+            -n `
+            -d "extension=C:\php-bin\php_imagick.dll" `
+            -r "echo PHP_VERSION, PHP_EOL; echo PHP_ZTS ? 'TS' : 'NTS', PHP_EOL; echo extension_loaded('imagick') ? 'Imagick OK' : 'Imagick FAILED', PHP_EOL;"
 
-      - name: Upload artifact
+          if ($LASTEXITCODE -ne 0) {
+              throw "PHP NTS failed to load php_imagick.dll."
+          }
+
+      # ----------------------------------------------------------
+      # Package NTS
+      # ----------------------------------------------------------
+
+      - name: Package NTS DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          New-Item `
+            -ItemType Directory `
+            -Path "C:\artifact-nts" `
+            -Force | Out-Null
+
+          Copy-Item `
+            -Path "C:\imagick-nts\php_imagick.dll" `
+            -Destination "C:\artifact-nts\php_imagick.dll" `
+            -Force
+
+          Get-ChildItem `
+            -Path "C:\ImageMagick\bin" `
+            -Filter "*.dll" `
+            -File |
+            Copy-Item `
+              -Destination "C:\artifact-nts" `
+              -Force
+
+          Compress-Archive `
+            -Path "C:\artifact-nts\*" `
+            -DestinationPath "imagick-3.8.1-php8.6-vs18-x64-nts.zip" `
+            -Force
+
+      # ----------------------------------------------------------
+      # Upload NTS artifact
+      # ----------------------------------------------------------
+
+      - name: Upload NTS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: php_imagick-3.8.1-8.6-${{ matrix.mode }}-vs18-x64
-          path: php_imagick-3.8.1-8.6-${{ matrix.mode }}-vs18-x64.zip
+          name: imagick-3.8.1-php8.6-vs18-x64-nts
+          path: imagick-3.8.1-php8.6-vs18-x64-nts.zip
           if-no-files-found: error
