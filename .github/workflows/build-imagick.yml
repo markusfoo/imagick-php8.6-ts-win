@@ -49,8 +49,18 @@ jobs:
           Write-Host "Downloading ImageMagick deps..."
           Invoke-WebRequest -Uri "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-47-vs17-x64.zip" -OutFile im.zip -UseBasicParsing
           
-          Write-Host "Downloading PHP SDK binary tools..."
-          Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip -UseBasicParsing
+          Write-Host "Downloading PHP SDK binary tools (with retries)..."
+          $retries = 3
+          for ($i = 1; $i -le $retries; $i++) {
+            try {
+              Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip -UseBasicParsing
+              break
+            } catch {
+              Write-Host "Attempt $i failed (503). Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not (Test-Path "sdk.zip")) { exit 1 }
 
       - name: Extract dependencies
         shell: pwsh
@@ -59,12 +69,11 @@ jobs:
           Expand-Archive php-devel.zip -DestinationPath C:\php-devel
           Expand-Archive im.zip -DestinationPath C:\ImageMagick
           Expand-Archive sdk.zip -DestinationPath C:\
-          Rename-Item "C:\php-sdk-binary-tools-master" "C:\php-sdk"
+          Rename-Item "C:\php-sdk-binary-tools-master" "C:\php-sdk" -ErrorAction SilentlyContinue
 
       - name: Set up build environment
         shell: pwsh
         run: |
-          # Отримуємо шлях до devel-pack
           $phpdevDir = Get-ChildItem "C:\php-devel" -Directory | Select-Object -First 1
           $phpdevPath = $phpdevDir.FullName
           
@@ -76,7 +85,6 @@ jobs:
           Copy-Item -Recurse -Force "C:\imagick-src\*" $imagickDir
           
           # Копіюємо бінарні файли PHP (php.exe, php8ts.dll) в корінь devel-pack
-          # Це потрібно, щоб phpize.bat міг знайти php.exe
           Copy-Item "C:\php-bin\php.exe" "$phpdevPath\" -Force
           Copy-Item "C:\php-bin\*.dll" "$phpdevPath\" -Force
           
@@ -90,7 +98,9 @@ jobs:
           
           set PHP_SDK_DIR=C:\php-sdk
           set IMAGICK_DIR=C:\ImageMagick
-          set PATH=%PHP_DEV_PATH%;%PATH%
+          
+          REM ВАЖЛИВО: Додаємо шляхи до PHP та PHP SDK (де знаходиться bison.exe, sed, awk тощо)
+          set PATH=%PHP_DEV_PATH%;C:\php-sdk\bin;%PATH%
           
           cd /d "%PHP_DEV_PATH%\ext\imagick"
           
