@@ -1,4 +1,4 @@
-name: Build imagick.dll for PHP 8.6.0beta1 (x64/x86, TS/NTS)
+name: Build imagick.dll for PHP 8.6.0beta1 (x64, TS)
 
 on:
   workflow_dispatch:
@@ -9,13 +9,10 @@ env:
 jobs:
   build:
     runs-on: windows-2022
-    strategy:
-      matrix:
-        include:
-          - { arch: x64, ts: ts, configure_flag: '--enable-snapshot-ts' }
-          - { arch: x64, ts: nts, configure_flag: '--disable-zts' }
-          - { arch: x86, ts: ts, configure_flag: '--enable-snapshot-ts' }
-          - { arch: x86, ts: nts, configure_flag: '--disable-zts' }
+    env:
+      PHP_BIN_ZIP: "https://downloads.php.net/~windows/qa/php-8.6.0beta1-Win32-vs18-x64.zip"
+      PHP_DEVEL_ZIP: "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-x64.zip"
+      IMAGEMAGICK_URL: "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-47-vs17-x64.zip"
 
     steps:
       - name: Checkout repository
@@ -36,17 +33,10 @@ jobs:
       - name: Download dependencies
         shell: pwsh
         run: |
-          $arch = "${{ matrix.arch }}"
-          $ts = "${{ matrix.ts }}"
-          
-          $binUrl = "https://downloads.php.net/~windows/qa/php-8.6.0beta1-Win32-vs18-$arch.zip"
-          if ($ts -eq "nts") { $binUrl = "https://downloads.php.net/~windows/qa/php-8.6.0beta1-nts-Win32-vs18-$arch.zip" }
-          
-          $develUrl = "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-$arch.zip"
-
-          Invoke-WebRequest -Uri $binUrl -OutFile php-bin.zip -UseBasicParsing
-          Invoke-WebRequest -Uri $develUrl -OutFile php-devel.zip -UseBasicParsing
-          Invoke-WebRequest -Uri "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-47-vs17-$arch.zip" -OutFile im.zip -UseBasicParsing
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "${{ env.PHP_BIN_ZIP }}" -OutFile php-bin.zip -UseBasicParsing
+          Invoke-WebRequest -Uri "${{ env.PHP_DEVEL_ZIP }}" -OutFile php-devel.zip -UseBasicParsing
+          Invoke-WebRequest -Uri "${{ env.IMAGEMAGICK_URL }}" -OutFile im.zip -UseBasicParsing
           Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip -UseBasicParsing
 
       - name: Extract dependencies
@@ -66,15 +56,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $imagickDir
           Copy-Item -Recurse -Force "C:\imagick-src\*" $imagickDir
 
-      - name: Build imagick
+      - name: Build with phpize / configure / nmake
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           set PHP_SDK_DIR=C:\php-sdk
           set IMAGICK_DIR=C:\ImageMagick
-          cd /d C:\php-devel\php-8.6.0beta1-devel-vs18-${{ matrix.arch }}\ext\imagick
+          cd /d C:\php-devel\php-8.6.0beta1-devel-vs18-x64\ext\imagick
           call phpize.bat
-          call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick ${{ matrix.configure_flag }}
+          call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick
           nmake
 
       - name: Collect built DLL
@@ -91,5 +81,5 @@ jobs:
       - name: Upload built DLL
         uses: actions/upload-artifact@v4
         with:
-          name: php_imagick-8.6.0beta1-${{ matrix.arch }}-${{ matrix.ts }}
+          name: php_imagick-8.6.0beta1-x64-TS
           path: out\php_imagick.dll
