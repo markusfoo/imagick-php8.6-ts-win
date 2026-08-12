@@ -1,4 +1,4 @@
-name: Build imagick.dll for PHP 8.6.0beta1 (x64, TS)
+name: Build imagick.dll for PHP 8.6.0beta1 (x64/x86, TS/NTS)
 
 on:
   workflow_dispatch:
@@ -9,36 +9,49 @@ env:
 jobs:
   build:
     runs-on: windows-2022
-    env:
-      PHP_SRC_ZIP: "https://downloads.php.net/~windows/qa/php-8.6.0beta1-src.zip"
-      PHP_BIN_ZIP: "https://downloads.php.net/~windows/qa/php-8.6.0beta1-Win32-vs18-x64.zip"
-      PHP_DEVEL_ZIP: "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-x64.zip"
-      IMAGEMAGICK_URL: "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-46-vs17-x64.zip"
+    strategy:
+      matrix:
+        include:
+          - { arch: x64, ts: ts, configure_flag: '--enable-snapshot-ts' }
+          - { arch: x64, ts: nts, configure_flag: '--disable-zts' }
+          - { arch: x86, ts: ts, configure_flag: '--enable-snapshot-ts' }
+          - { arch: x86, ts: nts, configure_flag: '--disable-zts' }
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Clone upstream imagick source
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/Imagick/imagick.git C:\imagick-src
+
+      - name: Apply zend_is_callable_ex patch
+        shell: pwsh
+        run: |
+          $file = "C:\imagick-src\imagick_class.c"
+          (Get-Content $file) -replace 'zend_is_callable\(user_callback, 0, NULL TSRMLS_CC\)', 'zend_is_callable_ex(user_callback, NULL, 0, NULL, NULL, NULL)' | Set-Content $file
+          Write-Host "Patch applied successfully."
+
       - name: Download dependencies
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          Write-Host "Downloading PHP Source..."
-          Invoke-WebRequest -Uri "${{ env.PHP_SRC_ZIP }}" -OutFile php-src.zip -UseBasicParsing
-          Write-Host "Downloading PHP Binary..."
-          Invoke-WebRequest -Uri "${{ env.PHP_BIN_ZIP }}" -OutFile php-bin.zip -UseBasicParsing
-          Write-Host "Downloading PHP Devel Pack..."
-          Invoke-WebRequest -Uri "${{ env.PHP_DEVEL_ZIP }}" -OutFile php-devel.zip -UseBasicParsing
-          Write-Host "Downloading ImageMagick deps..."
-          Invoke-WebRequest -Uri "${{ env.IMAGEMAGICK_URL }}" -OutFile im.zip -UseBasicParsing
-          Write-Host "Downloading PHP SDK binary tools..."
+          $arch = "${{ matrix.arch }}"
+          $ts = "${{ matrix.ts }}"
+          
+          $binUrl = "https://downloads.php.net/~windows/qa/php-8.6.0beta1-Win32-vs18-$arch.zip"
+          if ($ts -eq "nts") { $binUrl = "https://downloads.php.net/~windows/qa/php-8.6.0beta1-nts-Win32-vs18-$arch.zip" }
+          
+          $develUrl = "https://downloads.php.net/~windows/qa/php-devel-pack-8.6.0beta1-Win32-vs18-$arch.zip"
+
+          Invoke-WebRequest -Uri $binUrl -OutFile php-bin.zip -UseBasicParsing
+          Invoke-WebRequest -Uri $develUrl -OutFile php-devel.zip -UseBasicParsing
+          Invoke-WebRequest -Uri "https://downloads.php.net/~windows/pecl/deps/ImageMagick-7.1.1-47-vs17-$arch.zip" -OutFile im.zip -UseBasicParsing
           Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile sdk.zip -UseBasicParsing
-          Write-Host "All downloads complete."
 
       - name: Extract dependencies
         shell: pwsh
         run: |
-          Expand-Archive php-src.zip -DestinationPath C:\php-src
           Expand-Archive php-bin.zip -DestinationPath C:\php-bin
           Expand-Archive php-devel.zip -DestinationPath C:\php-devel
           Expand-Archive im.zip -DestinationPath C:\ImageMagick
@@ -51,18 +64,17 @@ jobs:
           $phpdevDir = Get-ChildItem "C:\php-devel" -Directory | Select-Object -First 1
           $imagickDir = "$($phpdevDir.FullName)\ext\imagick"
           New-Item -ItemType Directory -Force -Path $imagickDir
-          Expand-Archive "imagick-php86-patched.zip" -DestinationPath C:\temp-imagick
-          Copy-Item -Recurse -Force "C:\temp-imagick\imagick-src\*" $imagickDir
+          Copy-Item -Recurse -Force "C:\imagick-src\*" $imagickDir
 
-      - name: Build with phpize / configure / nmake
+      - name: Build imagick
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           set PHP_SDK_DIR=C:\php-sdk
           set IMAGICK_DIR=C:\ImageMagick
-          cd /d C:\php-devel\php-8.6.0beta1\ext\imagick
+          cd /d C:\php-devel\php-8.6.0beta1-devel-vs18-${{ matrix.arch }}\ext\imagick
           call phpize.bat
-          call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick
+          call configure.bat --with-imagick=shared --with-imagick-dir=C:\ImageMagick ${{ matrix.configure_flag }}
           nmake
 
       - name: Collect built DLL
@@ -79,5 +91,5 @@ jobs:
       - name: Upload built DLL
         uses: actions/upload-artifact@v4
         with:
-          name: php_imagick-8.6.0beta1-x64-TS
+          name: php_imagick-8.6.0beta1-${{ matrix.arch }}-${{ matrix.ts }}
           path: out\php_imagick.dll
