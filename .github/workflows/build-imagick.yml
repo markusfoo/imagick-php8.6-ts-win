@@ -80,7 +80,7 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify vendored imagick source is present
         shell: pwsh
@@ -517,7 +517,7 @@ jobs:
           Compress-Archive -Path "C:\artifact-ts\*" -DestinationPath "imagick-php8.6-vs18-x64-ts.zip" -Force
 
       - name: Upload TS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: imagick-php8.6-vs18-x64-ts
           path: imagick-php8.6-vs18-x64-ts.zip
@@ -536,7 +536,7 @@ jobs:
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify vendored imagick source is present
         shell: pwsh
@@ -893,7 +893,7 @@ jobs:
           Compress-Archive -Path "C:\artifact-nts\*" -DestinationPath "imagick-php8.6-vs18-x64-nts.zip" -Force
 
       - name: Upload NTS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: imagick-php8.6-vs18-x64-nts
           path: imagick-php8.6-vs18-x64-nts.zip
