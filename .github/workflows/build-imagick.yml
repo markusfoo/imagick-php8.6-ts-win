@@ -35,15 +35,17 @@ name: Build Imagick PHP 8.6.0beta1 VS18 x64
 #   untouched. This was never the problem.
 # ============================================================================
 #
-# BEFORE RUNNING THIS WORKFLOW, commit these two files (already verified
-# correct) into your repo:
+# BEFORE RUNNING THIS WORKFLOW, upload this ONE file into your repo:
 #
-#   vendor/imagick-php86-patched.zip                 <- your patched imagick source
-#   vendor/php-sdk-binary-tools-php-sdk-2.8.3.zip     <- PHP SDK (bison already inside)
+#   vendor/imagick-php86-patched.zip   <- your already-patched imagick source (~570 KB)
 #
-# Both are exactly the files you already have locally. Using vendored copies
-# instead of re-downloading/re-cloning/re-patching at runtime removes GitHub
-# 503s, upstream repo changes, and regex-patch drift as failure sources.
+# This is the exact file you already have locally. Using a vendored copy
+# instead of re-cloning/re-patching from GitHub at runtime removes upstream
+# repo changes and regex-patch drift as failure sources.
+#
+# The PHP SDK is NOT vendored (it's ~35 MB, over GitHub's 25 MB web-upload
+# limit) -- it's downloaded fresh from github.com/php/php-sdk-binary-tools
+# on every run instead, which has never failed in any prior run.
 
 on:
   workflow_dispatch:
@@ -80,21 +82,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify vendored assets are present
+      - name: Verify vendored imagick source is present
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          foreach ($f in @("vendor\imagick-php86-patched.zip", "vendor\php-sdk-binary-tools-php-sdk-2.8.3.zip")) {
-              if (-not (Test-Path $f)) {
-                  throw "Missing required vendored file: $f -- commit it to the repo first (see comments at the top of this workflow)."
-              }
-              Write-Host "Found: $f"
+          $f = "vendor\imagick-php86-patched.zip"
+          if (-not (Test-Path $f)) {
+              throw "Missing required vendored file: $f -- upload it to the repo first (see comments at the top of this workflow)."
           }
+          Write-Host "Found: $f"
 
       # --------------------------------------------------------
-      # Downloads (PHP QA binary/devel pack + ImageMagick deps).
-      # Everything else is vendored, so this is the only remaining
-      # flaky-network surface. Retries + integrity check included.
+      # Downloads (PHP SDK from GitHub + PHP QA binary/devel pack +
+      # ImageMagick deps from php.net). Retries + integrity checks
+      # included since php.net QA downloads have been flaky.
       # --------------------------------------------------------
 
       - name: Download PHP 8.6 TS binary + devel pack + ImageMagick deps
@@ -136,28 +137,40 @@ jobs:
           Get-FileWithRetry -Url "https://downloads.php.net/~windows/pecl/deps/ImageMagick-$env:IMAGEMAGICK_VERSION-vs17-x64.zip" -OutFile "imagemagick.zip"
 
       # --------------------------------------------------------
-      # Extract vendored PHP SDK
+      # Download + extract PHP SDK from GitHub (reliable domain,
+      # never failed in any prior run -- no need to vendor it)
       # --------------------------------------------------------
 
-      - name: Extract PHP SDK (vendored)
+      - name: Download and extract PHP SDK
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
+          for ($i = 1; $i -le 5; $i++) {
+              try {
+                  Write-Host "[$i/5] Downloading PHP SDK from GitHub..."
+                  Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile "sdk.zip" -UseBasicParsing
+                  break
+              } catch {
+                  Write-Host "Attempt $i failed: $($_.Exception.Message)"
+                  if ($i -eq 5) { throw "Failed to download PHP SDK from GitHub after 5 attempts." }
+                  Start-Sleep -Seconds (5 * $i)
+              }
+          }
+
           if (Test-Path "C:\php-sdk") { Remove-Item "C:\php-sdk" -Recurse -Force }
           New-Item -ItemType Directory -Path "C:\php-sdk-extract" -Force | Out-Null
-
-          Expand-Archive -Path "vendor\php-sdk-binary-tools-php-sdk-2.8.3.zip" -DestinationPath "C:\php-sdk-extract" -Force
+          Expand-Archive -Path "sdk.zip" -DestinationPath "C:\php-sdk-extract" -Force
 
           $root = Get-ChildItem -Path "C:\php-sdk-extract" -Directory | Select-Object -First 1
           if (-not $root) { throw "PHP SDK archive root was not found." }
           Move-Item -Path $root.FullName -Destination "C:\php-sdk" -Force
 
           $starter = Get-ChildItem -Path "C:\php-sdk" -Recurse -Filter "phpsdk-vs18-x64.bat" | Select-Object -First 1
-          if (-not $starter) { throw "phpsdk-vs18-x64.bat not found in vendored SDK." }
+          if (-not $starter) { throw "phpsdk-vs18-x64.bat not found in downloaded SDK." }
 
           $bison = Get-ChildItem -Path "C:\php-sdk" -Recurse -Filter "bison.exe" | Select-Object -First 1
-          if (-not $bison) { throw "bison.exe not found in vendored SDK." }
+          if (-not $bison) { throw "bison.exe not found in downloaded SDK." }
 
           Write-Host "SDK starter: $($starter.FullName)"
           Write-Host "bison.exe:   $($bison.FullName)"
@@ -512,16 +525,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify vendored assets are present
+      - name: Verify vendored imagick source is present
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          foreach ($f in @("vendor\imagick-php86-patched.zip", "vendor\php-sdk-binary-tools-php-sdk-2.8.3.zip")) {
-              if (-not (Test-Path $f)) {
-                  throw "Missing required vendored file: $f -- commit it to the repo first (see comments at the top of this workflow)."
-              }
-              Write-Host "Found: $f"
+          $f = "vendor\imagick-php86-patched.zip"
+          if (-not (Test-Path $f)) {
+              throw "Missing required vendored file: $f -- upload it to the repo first (see comments at the top of this workflow)."
           }
+          Write-Host "Found: $f"
 
       - name: Download PHP 8.6 NTS binary + devel pack + ImageMagick deps
         shell: pwsh
@@ -560,25 +572,36 @@ jobs:
           Get-FileWithRetry -Url "https://downloads.php.net/~windows/qa/php-devel-pack-$env:PHP_VERSION-nts-Win32-vs18-x64.zip" -OutFile "php-devel-nts.zip"
           Get-FileWithRetry -Url "https://downloads.php.net/~windows/pecl/deps/ImageMagick-$env:IMAGEMAGICK_VERSION-vs17-x64.zip" -OutFile "imagemagick.zip"
 
-      - name: Extract PHP SDK (vendored)
+      - name: Download and extract PHP SDK
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
+          for ($i = 1; $i -le 5; $i++) {
+              try {
+                  Write-Host "[$i/5] Downloading PHP SDK from GitHub..."
+                  Invoke-WebRequest -Uri "https://github.com/php/php-sdk-binary-tools/archive/refs/heads/master.zip" -OutFile "sdk.zip" -UseBasicParsing
+                  break
+              } catch {
+                  Write-Host "Attempt $i failed: $($_.Exception.Message)"
+                  if ($i -eq 5) { throw "Failed to download PHP SDK from GitHub after 5 attempts." }
+                  Start-Sleep -Seconds (5 * $i)
+              }
+          }
+
           if (Test-Path "C:\php-sdk") { Remove-Item "C:\php-sdk" -Recurse -Force }
           New-Item -ItemType Directory -Path "C:\php-sdk-extract" -Force | Out-Null
-
-          Expand-Archive -Path "vendor\php-sdk-binary-tools-php-sdk-2.8.3.zip" -DestinationPath "C:\php-sdk-extract" -Force
+          Expand-Archive -Path "sdk.zip" -DestinationPath "C:\php-sdk-extract" -Force
 
           $root = Get-ChildItem -Path "C:\php-sdk-extract" -Directory | Select-Object -First 1
           if (-not $root) { throw "PHP SDK archive root was not found." }
           Move-Item -Path $root.FullName -Destination "C:\php-sdk" -Force
 
           $starter = Get-ChildItem -Path "C:\php-sdk" -Recurse -Filter "phpsdk-vs18-x64.bat" | Select-Object -First 1
-          if (-not $starter) { throw "phpsdk-vs18-x64.bat not found in vendored SDK." }
+          if (-not $starter) { throw "phpsdk-vs18-x64.bat not found in downloaded SDK." }
 
           $bison = Get-ChildItem -Path "C:\php-sdk" -Recurse -Filter "bison.exe" | Select-Object -First 1
-          if (-not $bison) { throw "bison.exe not found in vendored SDK." }
+          if (-not $bison) { throw "bison.exe not found in downloaded SDK." }
 
       - name: Extract imagick source (vendored, pre-patched) - NTS copy
         shell: pwsh
