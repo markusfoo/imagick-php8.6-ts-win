@@ -386,9 +386,16 @@ jobs:
           echo ========================================
           echo VERIFY IMAGICK WAS ACTUALLY ENABLED
           echo ========================================
-          REM config.w32 only prints this line if header+lib were both
-          REM found and EXTENSION('imagick', ...) was actually called.
-          findstr /C:"Enabling extension imagick" configure-output.log >nul
+          REM config.w32 prints "Enabling extension <module-dir> [shared]"
+          REM where <module-dir> is the CURRENT DIRECTORY PATH (e.g.
+          REM "C:\imagick-ts"), not the literal word "imagick" -- so we
+          REM can't match on that literal string. The "Enabled extensions"
+          REM summary table it prints right after DOES use the real
+          REM extension name though, e.g. "| imagick   | shared |". Check
+          REM for a line containing both "imagick" and "shared" (the
+          REM WARNING/failure message contains "imagick" but never
+          REM "shared", so this correctly tells success from failure).
+          findstr /C:"imagick" configure-output.log | findstr /C:"shared" >nul
           if errorlevel 1 (
               echo.
               echo ERROR: config.w32 did NOT enable imagick.
@@ -763,7 +770,12 @@ jobs:
           echo ========================================
           echo VERIFY IMAGICK WAS ACTUALLY ENABLED
           echo ========================================
-          findstr /C:"Enabling extension imagick" configure-output.log >nul
+          REM config.w32 prints "Enabling extension <module-dir> [shared]"
+          REM where <module-dir> is the current directory path, not the
+          REM literal word "imagick" -- match on the "Enabled extensions"
+          REM summary table instead (a line containing both "imagick" and
+          REM "shared"; the failure/WARNING message never contains "shared").
+          findstr /C:"imagick" configure-output.log | findstr /C:"shared" >nul
           if errorlevel 1 (
               echo ERROR: config.w32 did NOT enable imagick.
               echo Expected:
