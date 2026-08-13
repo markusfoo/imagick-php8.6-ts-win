@@ -1,4 +1,4 @@
-# Imagick for PHP 8.6.0 (Thread Safe) - Windows x64
+# Imagick for PHP 8.6.0 (TS and NTS) - Windows x64
 
 Pre-built `php_imagick.dll` for PHP 8.6.0beta1 on Windows (x64, Thread Safe).
 
