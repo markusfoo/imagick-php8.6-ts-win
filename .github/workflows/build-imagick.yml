@@ -429,8 +429,14 @@ jobs:
           echo ========================================
           echo SEARCHING GENERATED DLL
           echo ========================================
+          REM NOTE: "for /r DIR in (literal_name.dll) do" is a classic
+          REM cmd.exe trap -- without a wildcard it does NOT check the
+          REM file actually exists; it just fires on the FIRST directory
+          REM visited (the root itself) with a fabricated, non-existent
+          REM path, so the real nested build output is never reached.
+          REM "dir /s /b" performs a real filesystem search instead.
           set "FOUND_DLL="
-          for /r "%SOURCE%" %%F in (php_imagick.dll) do (
+          for /f "delims=" %%F in ('dir /s /b /a-d "%SOURCE%\php_imagick.dll" 2^>nul') do (
               set "FOUND_DLL=%%F"
               goto :dll_found
           )
@@ -805,8 +811,14 @@ jobs:
           echo ========================================
           echo SEARCHING GENERATED DLL
           echo ========================================
+          REM NOTE: "for /r DIR in (literal_name.dll) do" is a classic
+          REM cmd.exe trap -- without a wildcard it does NOT check the
+          REM file actually exists; it just fires on the FIRST directory
+          REM visited (the root itself) with a fabricated, non-existent
+          REM path, so the real nested build output is never reached.
+          REM "dir /s /b" performs a real filesystem search instead.
           set "FOUND_DLL="
-          for /r "%SOURCE%" %%F in (php_imagick.dll) do (
+          for /f "delims=" %%F in ('dir /s /b /a-d "%SOURCE%\php_imagick.dll" 2^>nul') do (
               set "FOUND_DLL=%%F"
               goto :dll_found
           )
