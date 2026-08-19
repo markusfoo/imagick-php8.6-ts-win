@@ -524,7 +524,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
-          path: imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' ? '-AVX2' : '' }}.zip
+          path: imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}.zip
           if-no-files-found: error
 
 
@@ -904,7 +904,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
-          path: imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' ? '-AVX2' : '' }}.zip
+          path: imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}.zip
           if-no-files-found: error
 
 
