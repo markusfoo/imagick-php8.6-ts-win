@@ -60,7 +60,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   PHP_VERSION: "8.6.0beta1"
@@ -74,8 +74,12 @@ jobs:
 
   build-ts:
     if: ${{ inputs.build_ts }}
-    name: Build Imagick PHP 8.6 TS x64
+    name: Build Imagick PHP 8.6 TS x64${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        avx: ['', 'avx2']
 
     steps:
 
@@ -369,7 +373,7 @@ jobs:
           REM Do NOT append "=shared" (phpize forces shared automatically).
           REM Do NOT pass "--with-imagick-dir" (not a real option, silently
           REM ignored, and gives you a false sense that the path was used).
-          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" > configure-output.log 2>&1
+          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" ${{ matrix.avx == 'avx2' && '--enable-native-intrinsics=avx2' || '' }} > configure-output.log 2>&1
           set "CONFIGURE_EXIT=%ERRORLEVEL%"
           type configure-output.log
 
@@ -519,8 +523,8 @@ jobs:
       - name: Upload TS artifact
         uses: actions/upload-artifact@v6
         with:
-          name: imagick-php8.6-vs18-x64-ts
-          path: imagick-php8.6-vs18-x64-ts.zip
+          name: imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
+          path: imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' ? '-AVX2' : '' }}.zip
           if-no-files-found: error
 
 
@@ -530,8 +534,12 @@ jobs:
 
   build-nts:
     if: ${{ inputs.build_nts }}
-    name: Build Imagick PHP 8.6 NTS x64
+    name: Build Imagick PHP 8.6 NTS x64${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        avx: ['', 'avx2']
 
     steps:
 
@@ -762,7 +770,7 @@ jobs:
           echo ========================================
           echo CONFIGURE
           echo ========================================
-          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" --disable-zts > configure-output.log 2>&1
+          call configure.bat --with-php-build="%PHP_DEV%" --with-imagick="%IMAGEMAGICK%" --disable-zts ${{ matrix.avx == 'avx2' && '--enable-native-intrinsics=avx2' || '' }} > configure-output.log 2>&1
           set "CONFIGURE_EXIT=%ERRORLEVEL%"
           type configure-output.log
 
@@ -895,97 +903,6 @@ jobs:
       - name: Upload NTS artifact
         uses: actions/upload-artifact@v6
         with:
-          name: imagick-php8.6-vs18-x64-nts
-          path: imagick-php8.6-vs18-x64-nts.zip
+          name: imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}
+          path: imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' ? '-AVX2' : '' }}.zip
           if-no-files-found: error
-
-
-  # ============================================================
-  # RELEASE JOB - automatically publish built artifacts as a GitHub Release
-  # ============================================================
-  release:
-    needs: [build-ts, build-nts]
-    if: always() && (!cancelled())
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-          merge-multiple: false
-
-      - name: Consolidate zip files
-        run: |
-          mkdir -p release_assets
-          find artifacts -name "imagick-php*.zip" -exec cp {} release_assets/ \;
-          ls -la release_assets/
-
-      - name: Generate release metadata
-        id: meta
-        run: |
-          BUILD_DATE=$(date -u +'%Y-%m-%d')
-          BUILD_TIME=$(date -u +'%H:%M UTC')
-          TAG="imagick-php8.6-vs18-x64-${BUILD_DATE}"
-          echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
-          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
-          echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.meta.outputs.tag_name }}
-          name: Imagick PHP 8.6 VS18 x64 - ${{ steps.meta.outputs.build_date }}
-          body: |
-            # Imagick extension for PHP 8.6 - VS2024 x64 builds
-
-            | Field | Value |
-            |---|---|
-            | **Build date** | ${{ steps.meta.outputs.build_date }} ${{ steps.meta.outputs.build_time }} |
-            | **Compiler** | Visual Studio 2024 (VC18, vs18) |
-            | **Runner** | windows-2025 |
-            | **PHP version** | 8.6.0beta1 |
-            | **ImageMagick** | 7.1.1-47 |
-            | **Variants** | TS (Thread Safe), NTS (Non-Thread Safe) |
-
-            ## Downloads
-
-            Each zip contains `php_imagick.dll` plus all required ImageMagick runtime DLLs.
-
-            | Asset | Type | Use case |
-            |---|---|---|
-            | `imagick-php8.6-vs18-x64-ts.zip` | Thread Safe | For Apache mod_php / XAMPP |
-            | `imagick-php8.6-vs18-x64-nts.zip` | Non-Thread Safe | For IIS / Nginx FastCGI |
-
-            ## Installation
-
-            1. Extract the zip matching your PHP variant (TS or NTS)
-            2. Copy `php_imagick.dll` to your PHP `ext/` directory (e.g. `C:\xampp\php\ext\`)
-            3. Copy all `CORE_RL_*.dll` and other ImageMagick DLLs to PHP root (e.g. `C:\xampp\php\`)
-            4. Add to `php.ini`:
-               ```ini
-               extension=php_imagick.dll
-               ```
-            5. Restart Apache / PHP-FPM
-            6. Verify: `php -m | findstr imagick` should list "imagick"
-
-            ## Requirements
-
-            - PHP 8.6.0beta1 or newer (matching the variant: TS or NTS)
-            - Windows x64 (10/11, Server 2016+)
-
-            ## Source
-
-            - Built with: https://github.com/php/php-sdk-binary-tools
-            - PHP SDK: phpsdk-vs18-x64.bat (VS2024 / vs18)
-            - ImageMagick: 7.1.1-47
-
-            ---
-
-            *Automated build via workflow `build-imagick.yml`.*
-          files: release_assets/*.zip
-          generate_release_notes: false
-          draft: false
-          prerelease: true
