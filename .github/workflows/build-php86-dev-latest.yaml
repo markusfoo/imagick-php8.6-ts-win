@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x64, starter: phpsdk-vs18-x64.bat }
-          - { arch: x86, starter: phpsdk-vs18-x86.bat }
+          - { arch: x64, starter: phpsdk-vs18-x64.bat, vc_arch: amd64 }
+          - { arch: x86, starter: phpsdk-vs18-x86.bat, vc_arch: x86 }
     name: Build ${{ matrix.arch }}
     steps:
       - name: Skip x86 if disabled
@@ -49,61 +49,79 @@ jobs:
           path: php-sdk
           fetch-depth: 1
 
-      - name: Setup Visual Studio 2024 (msbuild in PATH)
-        if: ${{ !(matrix.arch == 'x86' && !inputs.include_x86) }}
-        uses: microsoft/setup-msbuild@v3
-
-      - name: Build PHP TS (Thread Safe) with VS2024
+      - name: Generate build task script
         if: ${{ !(matrix.arch == 'x86' && !inputs.include_x86) }}
         shell: cmd
         run: |
-          REM Activate PHP SDK environment for VS2024 (vs18) - auto-discovers VS install
-          REM This calls vcvarsall.bat to set up the MSVC environment
-          call ${{ github.workspace }}\php-sdk\${{ matrix.starter }}
+          REM Generate build_php.bat - this script runs INSIDE the properly configured
+          REM cmd session created by phpsdk-vs18-x64.bat (with vcvarsall + PATH set up)
+          
+          echo @echo off > ${{ github.workspace }}\build_php.bat
+          echo setlocal enableextensions enabledelayedexpansion >> ${{ github.workspace }}\build_php.bat
+          echo. >> ${{ github.workspace }}\build_php.bat
+          echo cd ${{ github.workspace }}\php-src >> ${{ github.workspace }}\build_php.bat
+          echo. >> ${{ github.workspace }}\build_php.bat
+          echo call buildconf.bat >> ${{ github.workspace }}\build_php.bat
+          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
+          echo. >> ${{ github.workspace }}\build_php.bat
+          echo call ${{ github.workspace }}\php-sdk\bin\phpsdk_deps.bat --update --force --batch >> ${{ github.workspace }}\build_php.bat
+          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
+          echo. >> ${{ github.workspace }}\build_php.bat
+          echo call configure.bat ^> ^
 
-          REM Switch to PHP source directory
-          cd ${{ github.workspace }}\php-src
+          echo   --enable-zts ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-cli ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-cgi ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-mbstring ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-openssl ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-curl ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-mysqli ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-pdo-mysql ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-opcache ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-intl ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-libxml ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-zlib ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-fileinfo ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-bcmath ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-exif ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-ftp ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-gd ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-gettext ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-mbregex ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-pdo ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --with-pdo-sqlite ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-shmop ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-soap ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-sockets ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-sysvmsg ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-sysvsem ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-sysvshm ^> >> ${{ github.workspace }}\build_php.bat
+          echo   --enable-xsl >> ${{ github.workspace }}\build_php.bat
+          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
+          echo. >> ${{ github.workspace }}\build_php.bat
+          echo nmake >> ${{ github.workspace }}\build_php.bat
+          echo exit /b %ERRORLEVEL% >> ${{ github.workspace }}\build_php.bat
+          
+          echo Build script generated:
+          type ${{ github.workspace }}\build_php.bat
 
-          REM Generate build configuration
-          call buildconf.bat
-
-          REM Download pre-built dependencies (openssl, curl, sqlite, icu, etc.)
-          REM Use full path because starter script may not add bin/ to PATH
-          call ${{ github.workspace }}\php-sdk\bin\phpsdk_deps.bat --update --force --batch
-
-          REM Configure Thread Safe build with standard extensions
-          call configure.bat ^
-            --enable-zts ^
-            --enable-cli ^
-            --enable-cgi ^
-            --enable-mbstring ^
-            --with-openssl ^
-            --with-curl ^
-            --with-mysqli ^
-            --with-pdo-mysql ^
-            --enable-opcache ^
-            --enable-intl ^
-            --with-libxml ^
-            --with-zlib ^
-            --enable-fileinfo ^
-            --enable-bcmath ^
-            --enable-exif ^
-            --enable-ftp ^
-            --enable-gd ^
-            --with-gettext ^
-            --enable-mbregex ^
-            --enable-pdo ^
-            --with-pdo-sqlite ^
-            --enable-shmop ^
-            --enable-soap ^
-            --enable-sockets ^
-            --enable-sysvmsg ^
-            --enable-sysvsem ^
-            --enable-sysvshm ^
-            --enable-xsl
-
-          REM Compile
-          nmake
+      - name: Build PHP TS via starter script (TASK mode - proper env propagation)
+        if: ${{ !(matrix.arch == 'x86' && !inputs.include_x86) }}
+        shell: cmd
+        run: |
+          REM Run build via phpsdk-vs18-x64.bat -t flag, which executes our task script
+          REM INSIDE the properly configured cmd session (with vcvarsall + PATH set up)
+          REM This is the ONLY correct way to use phpsdk-starter in CI (avoids cmd /k hang)
+          
+          call ${{ github.workspace }}\php-sdk\${{ matrix.starter }} -t ${{ github.workspace }}\build_php.bat
+          
+          REM Check exit code
+          if errorlevel 1 (
+            echo BUILD FAILED with exit code %ERRORLEVEL%
+            exit /b %ERRORLEVEL%
+          )
+          
+          echo BUILD SUCCEEDED
 
       - name: Package full distribution
         if: ${{ !(matrix.arch == 'x86' && !inputs.include_x86) }}
@@ -240,12 +258,6 @@ jobs:
             6. Start Apache
             7. Verify: `C:\xampp\php\php.exe -v`
 
-            ### For IIS / Nginx FastCGI
-
-            1. Extract to e.g. `C:\php\`
-            2. Copy `php.ini-production` to `php.ini` and configure as needed
-            3. Point your web server to `php-cgi.exe`
-
             ## Features included
 
             This build is based on the latest `master` branch of `php/php-src` and includes all PHP 8.6 features:
@@ -253,24 +265,13 @@ jobs:
             - **Partial Function Application (PFA)** - `?` placeholder syntax (RFC passed 33-0)
             - **`clamp()`** - built-in function for constraining values
             - **Readonly Property Defaults** - `public readonly array $x = [];` now valid
-            - **`SortDirection`** enum
-            - **`grapheme_strrev()`**
-            - **`#[\Override]` on class constants**
-            - **`Time\Duration`** class
-            - **`Io\Poll`** polling API
-            - **Debuggable enums** (`__debugInfo`)
-            - All deprecation notices and behavior changes from PHP 8.6
+            - All other PHP 8.6 features
 
             ## Verification
-
-            After installation, verify the build:
 
             ```
             php -v
             :: Should output: PHP 8.6.0-dev (cli) (built: <build date>) (ZTS Visual C++ 2024 x64)
-
-            php -r "echo function_exists('clamp') ? 'clamp() exists' : 'clamp() missing';"
-            :: Should output: clamp() exists
 
             php -r "class T { public readonly array $d = []; } $t = new T(); echo 'readonly+default OK';"
             :: Should output: readonly+default OK
@@ -281,7 +282,6 @@ jobs:
             - Built from: https://github.com/php/php-src (master branch)
             - Commit: ${{ steps.meta.outputs.php_commit_full }}
             - PHP SDK: https://github.com/php/php-sdk-binary-tools
-            - Compiler: Visual Studio 2024 (VS18, vs18) on windows-2025 runner
 
             ---
 
