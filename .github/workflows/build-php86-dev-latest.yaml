@@ -113,6 +113,7 @@ jobs:
           echo.
           echo === Listing Release_TS ===
           dir ${{ github.workspace }}\php-src\Release_TS 2>nul
+          exit /b 0
 
       - name: Package full distribution
         if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
