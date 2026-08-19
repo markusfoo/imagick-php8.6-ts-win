@@ -76,7 +76,7 @@ jobs:
           call ${{ github.workspace }}\php-sdk\bin\phpsdk_deps.bat --update --force --batch
           if errorlevel 1 exit /b 1
 
-          call configure.bat --enable-zts --enable-cli --enable-cgi --enable-mbstring --with-openssl --with-curl --with-mysqli --with-pdo-mysql --enable-opcache --enable-intl --with-libxml --with-zlib --enable-fileinfo --enable-bcmath --enable-exif --enable-ftp --enable-gd --with-gettext --enable-mbregex --enable-pdo --with-pdo-sqlite --enable-shmop --enable-soap --enable-sockets --enable-sysvmsg --enable-sysvsem --enable-sysvshm --enable-xsl ${{ matrix.avx_opt }}
+          call configure.bat --enable-zts --enable-cli --enable-cgi --enable-apache2handler --enable-mbstring --with-openssl --with-curl --with-mysqli --with-pdo-mysql --enable-opcache --enable-intl --with-libxml --with-zlib --enable-fileinfo --enable-bcmath --enable-exif --enable-ftp --enable-gd --with-gettext --enable-mbregex --enable-pdo --with-pdo-sqlite --enable-shmop --enable-soap --enable-sockets --enable-sysvmsg --enable-sysvsem --enable-sysvshm --enable-xsl ${{ matrix.avx_opt }}
           if errorlevel 1 exit /b 1
 
           nmake
