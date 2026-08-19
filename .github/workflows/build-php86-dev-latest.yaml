@@ -7,48 +7,76 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-      - name: Checkout PHP source (master — has Readonly Property Defaults fix)
+      - name: Checkout PHP source (master branch — has Readonly Property Defaults fix from Aug 12)
         uses: actions/checkout@v4
         with:
           repository: php/php-src
           ref: master
           path: php-src
 
+      - name: Checkout PHP SDK (replaces fragile 'git clone' that failed on auth)
+        uses: actions/checkout@v4
+        with:
+          repository: php/php-sdk
+          ref: master
+          path: php-sdk
+
       - name: Setup Visual Studio 2022
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install tools
-        shell: cmd
-        run: choco install 7zip git -y
-
-      - name: Clone PHP SDK
+      - name: Build PHP TS (Thread Safe)
         shell: cmd
         run: |
-          git clone https://github.com/php/php-sdk.git C:\php-sdk
-
-      - name: Build PHP TS
-        shell: cmd
-        run: |
+          REM Activate VS 2022 x64 build environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          call C:\php-sdk\phpsdk-vc17-x64.bat
+          
+          REM Activate PHP SDK environment (vc17 for VS2022)
+          call ${{ github.workspace }}\php-sdk\phpsdk-vc17-x64.bat
+          
+          REM Switch to PHP source directory
           cd ${{ github.workspace }}\php-src
+          
+          REM Generate build configuration
           call buildconf.bat
+          
+          REM Download pre-built dependencies (openssl, curl, sqlite, etc.)
           call phpsdk_deps --update --force --batch
-          call configure.bat --enable-zts --enable-cli --enable-cgi --enable-mbstring --with-openssl --with-curl --with-mysqli --with-pdo-mysql --enable-opcache --enable-intl --with-libxml --with-zlib --enable-fileinfo
+          
+          REM Configure Thread Safe build with required extensions for WordPress/WooCommerce
+          call configure.bat ^
+            --enable-zts ^
+            --enable-cli ^
+            --enable-cgi ^
+            --enable-mbstring ^
+            --with-openssl ^
+            --with-curl ^
+            --with-mysqli ^
+            --with-pdo-mysql ^
+            --enable-opcache ^
+            --enable-intl ^
+            --with-libxml ^
+            --with-zlib ^
+            --enable-fileinfo
+          
+          REM Compile
           nmake
 
       - name: Prepare artifacts
         shell: cmd
         run: |
           mkdir ${{ github.workspace }}\artifacts
+          
+          REM Main PHP binaries (TS = Thread Safe, required for XAMPP/Apache mod_php)
           copy ${{ github.workspace }}\php-src\x64\Release_TS\php.exe ${{ github.workspace }}\artifacts\
           copy ${{ github.workspace }}\php-src\x64\Release_TS\php-cgi.exe ${{ github.workspace }}\artifacts\
           copy ${{ github.workspace }}\php-src\x64\Release_TS\php8ts.dll ${{ github.workspace }}\artifacts\
           copy ${{ github.workspace }}\php-src\x64\Release_TS\php8apache2_4.dll ${{ github.workspace }}\artifacts\
+          
+          REM Extensions
           mkdir ${{ github.workspace }}\artifacts\ext
           copy ${{ github.workspace }}\php-src\x64\Release_TS\ext\*.dll ${{ github.workspace }}\artifacts\ext\
 
-      - name: Upload php8ts.dll + Apache module
+      - name: Upload php8ts.dll + Apache module + extensions
         uses: actions/upload-artifact@v4
         with:
           name: php-8.6.0-dev-ts-Win32-vs17-x64
