@@ -1,10 +1,10 @@
-name: Build PHP 8.6.0-dev TS Windows (x86 + x64 + AVX2)
+name: Build PHP 8.6.0-dev TS Windows VS18 (x86 + x64 + AVX2)
 
 on:
   workflow_dispatch:
     inputs:
       php_version:
-        description: 'PHP version string for artifact naming (placeholder: {{PHP_VERSION}})'
+        description: 'PHP version string for artifact naming (placeholder: {{PHP_VERSION}} in release body)'
         required: false
         default: '8.6.0-dev'
       include_avx2:
@@ -12,57 +12,64 @@ on:
         required: false
         default: true
         type: boolean
+      include_x86:
+        description: 'Build x86 (32-bit) variants in addition to x64'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PHP_VERSION: ${{ inputs.php_version }}
 
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: windows-2025
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { arch: x64, avx: no,  arch_flag: x64,    config_opts: "" }
-          - { arch: x86, avx: no,  arch_flag: x86,    config_opts: "" }
-          - { arch: x64, avx: yes, arch_flag: x64,    config_opts: "--with-config=avx2" }
-          - { arch: x86, avx: yes, arch_flag: x86,    config_opts: "--with-config=avx2" }
+          - { arch: x64, avx: no,  starter: phpsdk-vs18-x64.bat, avx_suffix: '',       avx_opt: '' }
+          - { arch: x86, avx: no,  starter: phpsdk-vs18-x86.bat, avx_suffix: '',       avx_opt: '' }
+          - { arch: x64, avx: yes, starter: phpsdk-vs18-x64.bat, avx_suffix: '-AVX2',  avx_opt: '--with-config=avx2' }
+          - { arch: x86, avx: yes, starter: phpsdk-vs18-x86.bat, avx_suffix: '-AVX2',  avx_opt: '--with-config=avx2' }
     name: Build ${{ matrix.arch }}${{ matrix.avx == 'yes' && '-AVX2' || '' }}
     steps:
       - name: Skip AVX2 if disabled
         if: ${{ matrix.avx == 'yes' && !inputs.include_avx2 }}
-        run: echo "AVX2 build skipped (include_avx2=false)" && exit 0
+        run: echo "AVX2 build skipped" && exit 0
+
+      - name: Skip x86 if disabled
+        if: ${{ matrix.arch == 'x86' && !inputs.include_x86 }}
+        run: echo "x86 build skipped" && exit 0
 
       - name: Checkout PHP source (master branch with latest commits)
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         uses: actions/checkout@v4
         with:
           repository: php/php-src
           ref: master
           path: php-src
+          fetch-depth: 1
 
-      - name: Checkout PHP SDK
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+      - name: Checkout PHP SDK binary tools
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         uses: actions/checkout@v4
         with:
-          repository: php/php-sdk
+          repository: php/php-sdk-binary-tools
           ref: master
           path: php-sdk
+          fetch-depth: 1
 
-      - name: Setup Visual Studio 2022
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+      - name: Setup Visual Studio 2024
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build PHP TS (Thread Safe)
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+      - name: Build PHP TS (Thread Safe) with VS2024
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         shell: cmd
         run: |
-          REM Activate VS 2022 build environment for ${{ matrix.arch_flag }}
-          if "${{ matrix.arch_flag }}"=="x64" (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          ) else (
-            call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
-          )
-
-          REM Activate PHP SDK environment for the matching architecture
-          call ${{ github.workspace }}\php-sdk\phpsdk-vc17-${{ matrix.arch_flag }}.bat
+          REM Activate PHP SDK environment for VS2024 (vs18) - auto-discovers VS install
+          call ${{ github.workspace }}\php-sdk\${{ matrix.starter }}
 
           REM Switch to PHP source directory
           cd ${{ github.workspace }}\php-src
@@ -70,7 +77,7 @@ jobs:
           REM Generate build configuration
           call buildconf.bat
 
-          REM Download pre-built dependencies (openssl, curl, sqlite, etc.)
+          REM Download pre-built dependencies (openssl, curl, sqlite, icu, etc.)
           call phpsdk_deps --update --force --batch
 
           REM Configure Thread Safe build with standard extensions
@@ -102,62 +109,54 @@ jobs:
             --enable-sysvmsg ^
             --enable-sysvsem ^
             --enable-sysvshm ^
-            --enable-xsl ${{ matrix.config_opts }}
+            --enable-xsl ^
+            ${{ matrix.avx_opt }}
 
           REM Compile
           nmake
 
       - name: Package full distribution
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         shell: cmd
         run: |
-          REM Build distribution directory name
-          set AVX_SUFFIX=
-          if "${{ matrix.avx }}"=="yes" set AVX_SUFFIX=-AVX2
-          set DIST_NAME=php-${{ inputs.php_version }}-ts-Win32-vs17-${{ matrix.arch }}%AVX_SUFFIX%
+          set DIST_NAME=php-${{ env.PHP_VERSION }}-ts-Win32-vs18-${{ matrix.arch }}${{ matrix.avx_suffix }}
           set DIST_DIR=${{ github.workspace }}\%DIST_NAME%
 
-          REM Determine Release_TS or Release directory based on arch
           set REL_DIR=${{ github.workspace }}\php-src\x64\Release_TS
           if "${{ matrix.arch }}"=="x86" set REL_DIR=${{ github.workspace }}\php-src\Release_TS
 
-          REM Create distribution directory
           mkdir "%DIST_DIR%"
 
-          REM Copy main PHP binaries and DLLs
           copy "%REL_DIR%\php.exe" "%DIST_DIR%\"
           copy "%REL_DIR%\php-cgi.exe" "%DIST_DIR%\"
           copy "%REL_DIR%\php8ts.dll" "%DIST_DIR%\"
           copy "%REL_DIR%\php8apache2_4.dll" "%DIST_DIR%\"
-          copy "%REL_DIR%\php8ts.pdb" "%DIST_DIR%\" 2>nul
-          copy "%REL_DIR%\php.pdb" "%DIST_DIR%\" 2>nul
+          copy "%REL_DIR%\php8ts.pdb" "%DIST_DIR%\"  2>nul
+          copy "%REL_DIR%\php.pdb" "%DIST_DIR%\"  2>nul
 
-          REM Copy extensions
           mkdir "%DIST_DIR%\ext"
           copy "%REL_DIR%\ext\*.dll" "%DIST_DIR%\ext\"
 
-          REM Copy dependency DLLs (libcrypto, libssl, etc.)
-          copy "%REL_DIR%\*.dll" "%DIST_DIR%\" 2>nul
+          copy "%REL_DIR%\libcrypto-*.dll" "%DIST_DIR%\"  2>nul
+          copy "%REL_DIR%\libssl-*.dll" "%DIST_DIR%\"  2>nul
+          copy "%REL_DIR%\icu*.dll" "%DIST_DIR%\"  2>nul
+          copy "%REL_DIR%\lib*.dll" "%DIST_DIR%\"  2>nul
 
-          REM Copy configuration templates
           copy "${{ github.workspace }}\php-src\php.ini-development" "%DIST_DIR%\"
           copy "${{ github.workspace }}\php-src\php.ini-production" "%DIST_DIR%\"
+          copy "${{ github.workspace }}\php-src\LICENSE" "%DIST_DIR%\LICENSE.txt"  2>nul
+          copy "${{ github.workspace }}\php-src\NEWS" "%DIST_DIR%\NEWS.txt"  2>nul
+          copy "${{ github.workspace }}\php-src\README.md" "%DIST_DIR%\README.md"  2>nul
 
-          REM Copy license/readme
-          copy "${{ github.workspace }}\php-src\LICENSE" "%DIST_DIR%\LICENSE.txt" 2>nul
-          copy "${{ github.workspace }}\php-src\NEWS" "%DIST_DIR%\NEWS.txt" 2>nul
-          copy "${{ github.workspace }}\php-src\README.md" "%DIST_DIR%\README.md" 2>nul
-
-          REM Create zip with maximum compression
           cd ${{ github.workspace }}
           7z a -tzip "%DIST_NAME%.zip" "%DIST_NAME%" -mx9
           dir "%DIST_NAME%.zip"
 
       - name: Upload build artifact
-        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) }}
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         uses: actions/upload-artifact@v4
         with:
-          name: php-${{ inputs.php_version }}-ts-Win32-vs17-${{ matrix.arch }}${{ matrix.avx == 'yes' && '-AVX2' || '' }}
+          name: php-${{ env.PHP_VERSION }}-ts-Win32-vs18-${{ matrix.arch }}${{ matrix.avx_suffix }}
           path: ${{ github.workspace }}/php-*.zip
           retention-days: 90
 
@@ -189,7 +188,6 @@ jobs:
           echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
           echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
           echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
-          # Get the latest commit SHA from php-src master
           PHP_COMMIT=$(curl -s https://api.github.com/repos/php/php-src/commits/master | grep -oE '"sha":"[a-f0-9]+"' | head -1 | cut -d'"' -f4)
           echo "php_commit=${PHP_COMMIT:0:12}" >> $GITHUB_OUTPUT
           echo "php_commit_full=${PHP_COMMIT}" >> $GITHUB_OUTPUT
@@ -198,68 +196,59 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag_name }}
-          name: PHP ${{ inputs.php_version }} TS Windows — ${{ steps.meta.outputs.build_date }}
+          name: PHP ${{ inputs.php_version }} TS Windows VS18 - ${{ steps.meta.outputs.build_date }}
           body: |
-            # PHP ${{ inputs.php_version }} — Thread Safe Windows Build
+            # PHP ${{ inputs.php_version }} - Thread Safe Windows Build (VS2024)
 
             | Field | Value |
             |---|---|
             | **Build date** | ${{ steps.meta.outputs.build_date }} ${{ steps.meta.outputs.build_time }} |
             | **PHP source commit** | [${{ steps.meta.outputs.php_commit }}](https://github.com/php/php-src/commit/${{ steps.meta.outputs.php_commit_full }}) |
-            | **Compiler** | Visual Studio 2022 (VC17) |
-            | **Build type** | Thread Safe (ZTS) — for Apache mod_php and XAMPP |
+            | **Compiler** | Visual Studio 2024 (VC18, vs18) |
+            | **Build type** | Thread Safe (ZTS) - for Apache mod_php and XAMPP |
             | **Architectures** | x86, x64, AVX2 variants |
 
             ## Downloads
 
-            Each zip is a **complete PHP distribution** — ready to extract and use, no additional dependencies required.
+            Each zip is a **complete PHP distribution** - ready to extract and use, no additional dependencies required.
 
             | Asset | Architecture | Optimization | Use case |
             |---|---|---|---|
-            | `php-{{PHP_VERSION}}-ts-Win32-vs17-x64.zip` | x64 (64-bit) | Standard | Modern Windows (10/11, Server 2016+) |
-            | `php-{{PHP_VERSION}}-ts-Win32-vs17-x86.zip` | x86 (32-bit) | Standard | 32-bit Windows or legacy apps |
-            | `php-{{PHP_VERSION}}-ts-Win32-vs17-x64-AVX2.zip` | x64 | AVX2 | Modern CPUs with AVX2 (Intel Haswell+, AMD Ryzen+) |
-            | `php-{{PHP_VERSION}}-ts-Win32-vs17-x86-AVX2.zip` | x86 | AVX2 | 32-bit with AVX2-capable CPU |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64.zip` | x64 (64-bit) | Standard | Modern Windows (10/11, Server 2016+) |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86.zip` | x86 (32-bit) | Standard | 32-bit Windows or legacy apps |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64-AVX2.zip` | x64 | AVX2 | Modern CPUs with AVX2 (Intel Haswell+, AMD Ryzen+) |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86-AVX2.zip` | x86 | AVX2 | 32-bit with AVX2-capable CPU |
 
             > **Note:** `{{PHP_VERSION}}` is a placeholder automatically replaced at build time. Current build: **${{ inputs.php_version }}**
 
             ## Contents of each zip
 
-            - `php.exe` — CLI binary
-            - `php-cgi.exe` — FastCGI binary (for IIS / nginx FastCGI)
-            - `php8ts.dll` — Thread Safe PHP engine (used by Apache mod_php)
-            - `php8apache2_4.dll` — Apache 2.4 module (for XAMPP / Apache mod_php)
-            - `ext/*.dll` — All standard extensions:
-              - `php_mysqli.dll`, `php_pdo_mysql.dll`, `php_pdo_sqlite.dll` — database drivers
-              - `php_opcache.dll` — OPcache (recommended for production)
-              - `php_curl.dll`, `php_openssl.dll` — HTTP/HTTPS
-              - `php_gd.dll`, `php_intl.dll`, `php_mbstring.dll`
-              - `php_soap.dll`, `php_sockets.dll`, `php_xsl.dll`
-              - `php_bcmath.dll`, `php_exif.dll`, `php_ftp.dll`
-              - and all other standard extensions
+            - `php.exe` - CLI binary
+            - `php-cgi.exe` - FastCGI binary (for IIS / nginx FastCGI)
+            - `php8ts.dll` - Thread Safe PHP engine (used by Apache mod_php)
+            - `php8apache2_4.dll` - Apache 2.4 module (for XAMPP / Apache mod_php)
+            - `ext/*.dll` - All standard extensions (mysqli, opcache, curl, gd, intl, mbstring, soap, sockets, etc.)
             - Dependency DLLs (`libcrypto-*.dll`, `libssl-*.dll`, `icu*.dll`, etc.)
-            - `php.ini-development` and `php.ini-production` — configuration templates
-            - `LICENSE.txt`, `NEWS.txt`, `README.md` — PHP documentation
+            - `php.ini-development` and `php.ini-production` - configuration templates
+            - `LICENSE.txt`, `NEWS.txt`, `README.md` - PHP documentation
 
             ## Installation
 
             ### For XAMPP / Apache mod_php (TS = Thread Safe)
 
-            1. Download the zip matching your architecture:
-               - **x64** for 64-bit Windows (recommended)
-               - **x86** for 32-bit Windows
-            2. Extract the zip to a folder, e.g. `C:\php\`
+            1. Download the zip matching your architecture (x64 for 64-bit Windows recommended)
+            2. Extract to a folder, e.g. `C:\php\`
             3. Backup existing files:
-               ```cmd
+               ```
                copy C:\xampp\php\php8ts.dll C:\xampp\php\php8ts.dll.backup
                copy C:\xampp\apache\modules\php8apache2_4.dll C:\xampp\apache\modules\php8apache2_4.dll.backup
                ```
             4. Stop Apache (via XAMPP Control Panel)
             5. Replace files:
-               - `php8ts.dll` → `C:\xampp\php\php8ts.dll`
-               - `php8apache2_4.dll` → `C:\xampp\apache\modules\php8apache2_4.dll`
-               - `php.exe` → `C:\xampp\php\php.exe`
-               - `ext\*.dll` → `C:\xampp\php\ext\`
+               - `php8ts.dll` -> `C:\xampp\php\php8ts.dll`
+               - `php8apache2_4.dll` -> `C:\xampp\apache\modules\php8apache2_4.dll`
+               - `php.exe` -> `C:\xampp\php\php.exe`
+               - `ext\*.dll` -> `C:\xampp\php\ext\`
             6. Start Apache
             7. Verify: `C:\xampp\php\php.exe -v`
 
@@ -273,9 +262,9 @@ jobs:
 
             This build is based on the latest `master` branch of `php/php-src` and includes all PHP 8.6 features:
 
-            - **Partial Function Application (PFA)** — `?` placeholder syntax (RFC passed 33-0)
-            - **`clamp()`** — built-in function for constraining values
-            - **Readonly Property Defaults** — `public readonly array $x = [];` now valid
+            - **Partial Function Application (PFA)** - `?` placeholder syntax (RFC passed 33-0)
+            - **`clamp()`** - built-in function for constraining values
+            - **Readonly Property Defaults** - `public readonly array $x = [];` now valid
             - **`SortDirection`** enum
             - **`grapheme_strrev()`**
             - **`#[\Override]` on class constants**
@@ -288,9 +277,9 @@ jobs:
 
             After installation, verify the build:
 
-            ```cmd
+            ```
             php -v
-            :: Should output: PHP 8.6.0-dev (cli) (built: <build date>) (ZTS Visual C++ 2022 x64)
+            :: Should output: PHP 8.6.0-dev (cli) (built: <build date>) (ZTS Visual C++ 2024 x64)
 
             php -r "echo function_exists('clamp') ? 'clamp() exists' : 'clamp() missing';"
             :: Should output: clamp() exists
@@ -303,8 +292,8 @@ jobs:
 
             - Built from: https://github.com/php/php-src (master branch)
             - Commit: ${{ steps.meta.outputs.php_commit_full }}
-            - PHP SDK: https://github.com/php/php-sdk
-            - This build was produced by a GitHub Actions workflow — see the workflow file for full reproducibility.
+            - PHP SDK: https://github.com/php/php-sdk-binary-tools
+            - Compiler: Visual Studio 2024 (VS18, vs18) on windows-2025 runner
 
             ---
 
