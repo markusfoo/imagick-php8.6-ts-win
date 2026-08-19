@@ -60,61 +60,32 @@ jobs:
           path: php-sdk
           fetch-depth: 1
 
-      - name: Generate build task script
+      - name: Generate build_php.bat via PowerShell (avoid cmd echo ^ escaping issues)
         if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
-        shell: cmd
+        shell: pwsh
         run: |
-          REM Generate build_php.bat - this script runs INSIDE the properly configured
-          REM cmd session created by phpsdk-vs18-x64.bat (with vcvarsall + PATH set up)
-          
-          echo @echo off > ${{ github.workspace }}\build_php.bat
-          echo setlocal enableextensions enabledelayedexpansion >> ${{ github.workspace }}\build_php.bat
-          echo. >> ${{ github.workspace }}\build_php.bat
-          echo cd ${{ github.workspace }}\php-src >> ${{ github.workspace }}\build_php.bat
-          echo. >> ${{ github.workspace }}\build_php.bat
-          echo call buildconf.bat >> ${{ github.workspace }}\build_php.bat
-          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
-          echo. >> ${{ github.workspace }}\build_php.bat
-          echo call ${{ github.workspace }}\php-sdk\bin\phpsdk_deps.bat --update --force --batch >> ${{ github.workspace }}\build_php.bat
-          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
-          echo. >> ${{ github.workspace }}\build_php.bat
-          echo call configure.bat ^> ^
+          $batContent = @'
+          @echo off
+          setlocal enableextensions enabledelayedexpansion
 
-          echo   --enable-zts ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-cli ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-cgi ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-mbstring ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-openssl ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-curl ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-mysqli ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-pdo-mysql ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-opcache ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-intl ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-libxml ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-zlib ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-fileinfo ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-bcmath ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-exif ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-ftp ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-gd ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-gettext ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-mbregex ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-pdo ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --with-pdo-sqlite ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-shmop ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-soap ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-sockets ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-sysvmsg ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-sysvsem ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-sysvshm ^> >> ${{ github.workspace }}\build_php.bat
-          echo   --enable-xsl ${{ matrix.avx_opt }} >> ${{ github.workspace }}\build_php.bat
-          echo if errorlevel 1 exit /b 1 >> ${{ github.workspace }}\build_php.bat
-          echo. >> ${{ github.workspace }}\build_php.bat
-          echo nmake >> ${{ github.workspace }}\build_php.bat
-          echo exit /b %ERRORLEVEL% >> ${{ github.workspace }}\build_php.bat
-          
-          echo Build script generated:
-          type ${{ github.workspace }}\build_php.bat
+          cd ${{ github.workspace }}\php-src
+
+          call buildconf.bat
+          if errorlevel 1 exit /b 1
+
+          call ${{ github.workspace }}\php-sdk\bin\phpsdk_deps.bat --update --force --batch
+          if errorlevel 1 exit /b 1
+
+          call configure.bat --enable-zts --enable-cli --enable-cgi --enable-mbstring --with-openssl --with-curl --with-mysqli --with-pdo-mysql --enable-opcache --enable-intl --with-libxml --with-zlib --enable-fileinfo --enable-bcmath --enable-exif --enable-ftp --enable-gd --with-gettext --enable-mbregex --enable-pdo --with-pdo-sqlite --enable-shmop --enable-soap --enable-sockets --enable-sysvmsg --enable-sysvsem --enable-sysvshm --enable-xsl ${{ matrix.avx_opt }}
+          if errorlevel 1 exit /b 1
+
+          nmake
+          exit /b %ERRORLEVEL%
+          '@
+
+          Set-Content -Path "${{ github.workspace }}\build_php.bat" -Value $batContent -Encoding ASCII
+          Write-Host "Generated build_php.bat:"
+          Get-Content "${{ github.workspace }}\build_php.bat"
 
       - name: Build PHP TS via starter script (TASK mode)
         if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
@@ -127,6 +98,22 @@ jobs:
           )
           echo BUILD SUCCEEDED
 
+      - name: Locate built files (debug)
+        if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
+        shell: cmd
+        run: |
+          echo === Looking for php.exe in php-src tree ===
+          dir /s /b ${{ github.workspace }}\php-src\php.exe 2>nul
+          echo.
+          echo === Looking for php8ts.dll ===
+          dir /s /b ${{ github.workspace }}\php-src\php8ts.dll 2>nul
+          echo.
+          echo === Listing x64\Release_TS ===
+          dir ${{ github.workspace }}\php-src\x64\Release_TS 2>nul
+          echo.
+          echo === Listing Release_TS ===
+          dir ${{ github.workspace }}\php-src\Release_TS 2>nul
+
       - name: Package full distribution
         if: ${{ !(matrix.avx == 'yes' && !inputs.include_avx2) && !(matrix.arch == 'x86' && !inputs.include_x86) }}
         shell: cmd
@@ -136,6 +123,9 @@ jobs:
 
           set REL_DIR=${{ github.workspace }}\php-src\x64\Release_TS
           if "${{ matrix.arch }}"=="x86" set REL_DIR=${{ github.workspace }}\php-src\Release_TS
+
+          echo Using REL_DIR=%REL_DIR%
+          dir "%REL_DIR%"
 
           mkdir "%DIST_DIR%"
 
@@ -222,117 +212,52 @@ jobs:
 
             ## Downloads
 
-            Each zip is a **complete PHP distribution** - ready to extract and use, no additional dependencies required.
+            Each zip is a **complete PHP distribution** - ready to extract and use.
 
-            ### Standard builds (works on any x86/x64 CPU from past 15 years)
-
-            | Asset | Architecture | Use case |
+            | Asset | Architecture | Optimization |
             |---|---|---|
-            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64.zip` | x64 (64-bit) | Modern Windows (10/11, Server 2016+) |
-            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86.zip` | x86 (32-bit) | 32-bit Windows or legacy apps |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64.zip` | x64 | Standard |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86.zip` | x86 | Standard |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64-AVX2.zip` | x64 | AVX2 |
+            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86-AVX2.zip` | x86 | AVX2 |
 
-            ### AVX2-optimized builds (modern CPUs - Intel Haswell 2013+, AMD Ryzen 2017+)
+            ## Contents
 
-            | Asset | Architecture | Optimization | Use case |
-            |---|---|---|---|
-            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x64-AVX2.zip` | x64 | AVX2 | Modern servers/desktops - faster PCRE, password_hash, GD |
-            | `php-{{PHP_VERSION}}-ts-Win32-vs18-x86-AVX2.zip` | x86 | AVX2 | 32-bit with AVX2-capable CPU |
+            - php.exe, php-cgi.exe (CLI + FastCGI)
+            - php8ts.dll (TS engine for Apache mod_php)
+            - php8apache2_4.dll (Apache 2.4 module)
+            - ext/*.dll (40+ extensions: mysqli, opcache, curl, gd, intl, etc.)
+            - Dependency DLLs (libcrypto, libssl, icu)
+            - php.ini-development, php.ini-production
 
-            > **Note:** `{{PHP_VERSION}}` is a placeholder automatically replaced at build time. Current build: **${{ inputs.php_version }}**
+            ## Installation (XAMPP)
 
-            ### AVX2 performance gains
+            1. Download x64-AVX2.zip for best performance on modern CPUs
+            2. Stop Apache
+            3. Replace php8ts.dll, php8apache2_4.dll, php.exe, ext/ in C:\\xampp\\php\\
+            4. Start Apache
+            5. Verify: C:\\xampp\\php\\php.exe -v
 
-            AVX2 (Advanced Vector Extensions 2) provides SIMD instructions that accelerate:
+            ## Features
 
-            | Operation | Speedup | Where used in PHP |
-            |---|---|---|
-            | PCRE regex | 10-20% | preg_match, preg_replace (WordPress content, shortcodes) |
-            | password_hash | 15-30% | Argon2, bcrypt (user login) |
-            | mbstring | 5-15% | UTF-8 operations, translations |
-            | SHA-256/512 | 10-25% | API auth, JWT |
-            | GD image processing | 20-40% | imagecopyresampled (WooCommerce products) |
-            | BCMath | 5-10% | WooCommerce price calculations |
-
-            **Real-world benefit for WordPress + WooCommerce: 5-15% overall speedup** on typical requests.
-
-            ### When to choose AVX2 vs standard
-
-            - **AVX2**: CPU supports AVX2 (Intel Haswell 2013+, AMD Ryzen 2017+) - you get faster PHP
-            - **Standard**: Older CPU or unsure - safe choice that works everywhere
-
-            Run this to check if your CPU supports AVX2:
-            ```cmd
-            wmic cpu get name
-            :: Intel Core i5-4570 or newer, AMD Ryzen 5 1600 or newer -> AVX2 OK
-            :: Older CPUs -> use Standard build
-            ```
-
-            ## Contents of each zip
-
-            - `php.exe` - CLI binary
-            - `php-cgi.exe` - FastCGI binary (for IIS / nginx FastCGI)
-            - `php8ts.dll` - Thread Safe PHP engine (used by Apache mod_php)
-            - `php8apache2_4.dll` - Apache 2.4 module (for XAMPP / Apache mod_php)
-            - `ext/*.dll` - All standard extensions (mysqli, opcache, curl, gd, intl, mbstring, soap, sockets, etc.)
-            - Dependency DLLs (`libcrypto-*.dll`, `libssl-*.dll`, `icu*.dll`, etc.)
-            - `php.ini-development` and `php.ini-production` - configuration templates
-            - `LICENSE.txt`, `NEWS.txt`, `README.md` - PHP documentation
-
-            ## Installation
-
-            ### For XAMPP / Apache mod_php (TS = Thread Safe)
-
-            1. Download the zip matching your architecture (x64 for 64-bit Windows recommended)
-            2. Extract to a folder, e.g. `C:\php\`
-            3. Backup existing files:
-               ```
-               copy C:\xampp\php\php8ts.dll C:\xampp\php\php8ts.dll.backup
-               copy C:\xampp\apache\modules\php8apache2_4.dll C:\xampp\apache\modules\php8apache2_4.dll.backup
-               ```
-            4. Stop Apache (via XAMPP Control Panel)
-            5. Replace files:
-               - `php8ts.dll` -> `C:\xampp\php\php8ts.dll`
-               - `php8apache2_4.dll` -> `C:\xampp\apache\modules\php8apache2_4.dll`
-               - `php.exe` -> `C:\xampp\php\php.exe`
-               - `ext\*.dll` -> `C:\xampp\php\ext\`
-            6. Start Apache
-            7. Verify: `C:\xampp\php\php.exe -v`
-
-            ## Features included
-
-            This build is based on the latest `master` branch of `php/php-src` and includes all PHP 8.6 features:
-
-            - **Partial Function Application (PFA)** - `?` placeholder syntax (RFC passed 33-0)
-            - **`clamp()`** - built-in function for constraining values
-            - **Readonly Property Defaults** - `public readonly array $x = [];` now valid
-            - **`SortDirection`** enum
-            - **`grapheme_strrev()`**
-            - **`#[\Override]` on class constants**
-            - **`Time\Duration`** class
-            - **`Io\Poll`** polling API
-            - All other PHP 8.6 features
-
-            ## Verification
-
-            ```
-            php -v
-            :: Should output: PHP 8.6.0-dev (cli) (built: <build date>) (ZTS Visual C++ 2024 x64)
-
-            php -r "class T { public readonly array $d = []; } $t = new T(); echo 'readonly+default OK';"
-            :: Should output: readonly+default OK
-            ```
+            PHP 8.6 features included:
+            - Partial Function Application (PFA) - `?` placeholder
+            - clamp() built-in function
+            - Readonly Property Defaults - `public readonly array $x = [];`
+            - SortDirection enum
+            - And all other PHP 8.6 features
 
             ## Source
 
             - Built from: https://github.com/php/php-src (master branch)
             - Commit: ${{ steps.meta.outputs.php_commit_full }}
             - PHP SDK: https://github.com/php/php-sdk-binary-tools
-            - Compiler: Visual Studio 2024 (VS18, vs18) on windows-2025 runner
-            - AVX2 enabled via: `--enable-native-intrinsics=avx2` (official PHP configure option)
+            - Compiler: VS2024 (vs18) on windows-2025 runner
+            - AVX2 via: --enable-native-intrinsics=avx2
 
             ---
 
-            *This is an automated build. The release was created by the workflow `build-php86-dev-latest.yaml`.*
+            *Automated build via workflow `build-php86-dev-latest.yaml`.*
           files: release_assets/*.zip
           generate_release_notes: false
           draft: false
