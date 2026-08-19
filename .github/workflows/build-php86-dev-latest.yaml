@@ -127,6 +127,11 @@ jobs:
 
           echo Using REL_DIR=%REL_DIR%
           dir "%REL_DIR%"
+          echo.
+          echo === Looking for deps\bin directory ===
+          dir "${{ github.workspace }}\php-src\deps\bin" 2>nul
+          dir "${{ github.workspace }}\deps\bin" 2>nul
+          echo.
 
           mkdir "%DIST_DIR%"
 
@@ -138,12 +143,24 @@ jobs:
           copy "%REL_DIR%\php.pdb" "%DIST_DIR%\"  2>nul
 
           mkdir "%DIST_DIR%\ext"
-          copy "%REL_DIR%\ext\*.dll" "%DIST_DIR%\ext\"
+          REM Extensions are in Release_TS root (php_*.dll), NOT in ext/ subdir
+          copy "%REL_DIR%\php_*.dll" "%DIST_DIR%\ext\"  2>nul
 
-          copy "%REL_DIR%\libcrypto-*.dll" "%DIST_DIR%\"  2>nul
-          copy "%REL_DIR%\libssl-*.dll" "%DIST_DIR%\"  2>nul
-          copy "%REL_DIR%\icu*.dll" "%DIST_DIR%\"  2>nul
-          copy "%REL_DIR%\lib*.dll" "%DIST_DIR%\"  2>nul
+          REM Dependency DLLs (icudt77.dll, libcrypto-4-x64.dll, libssl-*.dll, brotli*.dll, etc.)
+          REM are in deps\bin\ (downloaded by phpsdk_deps)
+          set "DEPS_BIN_DIR=${{ github.workspace }}\php-src\deps\bin"
+          if not exist "%DEPS_BIN_DIR%\" set "DEPS_BIN_DIR=${{ github.workspace }}\deps\bin"
+          if exist "%DEPS_BIN_DIR%\" (
+            echo Copying dependency DLLs from: %DEPS_BIN_DIR%
+            copy "%DEPS_BIN_DIR%\*.dll" "%DIST_DIR%\"  2>nul
+          ) else (
+            echo WARNING: deps\bin not found, dependency DLLs may be missing
+            REM Try copying any *.dll directly from Release_TS as fallback
+            copy "%REL_DIR%\libcrypto-*.dll" "%DIST_DIR%\"  2>nul
+            copy "%REL_DIR%\libssl-*.dll" "%DIST_DIR%\"  2>nul
+            copy "%REL_DIR%\icu*.dll" "%DIST_DIR%\"  2>nul
+            copy "%REL_DIR%\lib*.dll" "%DIST_DIR%\"  2>nul
+          )
 
           copy "${{ github.workspace }}\php-src\php.ini-development" "%DIST_DIR%\"
           copy "${{ github.workspace }}\php-src\php.ini-production" "%DIST_DIR%\"
