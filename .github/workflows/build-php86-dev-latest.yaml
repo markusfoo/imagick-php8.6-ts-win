@@ -1,0 +1,56 @@
+name: Build PHP 8.6.0-dev TS (Thread Safe) for Windows x64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout PHP source (master — has Readonly Property Defaults fix)
+        uses: actions/checkout@v4
+        with:
+          repository: php/php-src
+          ref: master
+          path: php-src
+
+      - name: Setup Visual Studio 2022
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install tools
+        shell: cmd
+        run: choco install 7zip git -y
+
+      - name: Clone PHP SDK
+        shell: cmd
+        run: |
+          git clone https://github.com/php/php-sdk.git C:\php-sdk
+
+      - name: Build PHP TS
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call C:\php-sdk\phpsdk-vc17-x64.bat
+          cd ${{ github.workspace }}\php-src
+          call buildconf.bat
+          call phpsdk_deps --update --force --batch
+          call configure.bat --enable-zts --enable-cli --enable-cgi --enable-mbstring --with-openssl --with-curl --with-mysqli --with-pdo-mysql --enable-opcache --enable-intl --with-libxml --with-zlib --enable-fileinfo
+          nmake
+
+      - name: Prepare artifacts
+        shell: cmd
+        run: |
+          mkdir ${{ github.workspace }}\artifacts
+          copy ${{ github.workspace }}\php-src\x64\Release_TS\php.exe ${{ github.workspace }}\artifacts\
+          copy ${{ github.workspace }}\php-src\x64\Release_TS\php-cgi.exe ${{ github.workspace }}\artifacts\
+          copy ${{ github.workspace }}\php-src\x64\Release_TS\php8ts.dll ${{ github.workspace }}\artifacts\
+          copy ${{ github.workspace }}\php-src\x64\Release_TS\php8apache2_4.dll ${{ github.workspace }}\artifacts\
+          mkdir ${{ github.workspace }}\artifacts\ext
+          copy ${{ github.workspace }}\php-src\x64\Release_TS\ext\*.dll ${{ github.workspace }}\artifacts\ext\
+
+      - name: Upload php8ts.dll + Apache module
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-8.6.0-dev-ts-Win32-vs17-x64
+          path: artifacts/
+          retention-days: 90
