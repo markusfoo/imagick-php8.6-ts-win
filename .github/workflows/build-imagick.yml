@@ -518,7 +518,7 @@ jobs:
           Get-ChildItem -Path "C:\ImageMagick\bin" -Filter "*.dll" -File | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination "C:\artifact-ts" -Force
           }
-          Compress-Archive -Path "C:\artifact-ts\*" -DestinationPath "imagick-php8.6-vs18-x64-ts.zip" -Force
+          Compress-Archive -Path "C:\artifact-ts\*" -DestinationPath "imagick-php8.6-vs18-x64-ts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}.zip" -Force
 
       - name: Upload TS artifact
         uses: actions/upload-artifact@v6
@@ -898,7 +898,7 @@ jobs:
           Get-ChildItem -Path "C:\ImageMagick\bin" -Filter "*.dll" -File | ForEach-Object {
               Copy-Item -Path $_.FullName -Destination "C:\artifact-nts" -Force
           }
-          Compress-Archive -Path "C:\artifact-nts\*" -DestinationPath "imagick-php8.6-vs18-x64-nts.zip" -Force
+          Compress-Archive -Path "C:\artifact-nts\*" -DestinationPath "imagick-php8.6-vs18-x64-nts${{ matrix.avx == 'avx2' && '-AVX2' || '' }}.zip" -Force
 
       - name: Upload NTS artifact
         uses: actions/upload-artifact@v6
